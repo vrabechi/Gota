@@ -27,6 +27,7 @@ from youtube_transcript_api import (
     YouTubeTranscriptApi,
 )
 
+import filters
 from cleaning import clean_plain, clean_vtt
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -70,7 +71,6 @@ class Settings:
     sleep_max: float = 6.0
     max_retries: int = 3
     backoff_base: float = 5.0
-    min_duration_seconds: int = 90
     scan_limit: int = 150
     default_max_age_months: int = 24
 
@@ -187,11 +187,12 @@ def record_failure(channel: str, entry: dict, reason: str, permanent: bool) -> N
 # -------------------------------------------------------------------------- listing
 
 
-def list_channel_candidates(channel: ChannelConfig, settings: Settings, cookies: str | None) -> list[dict]:
-    """Flat-list the newest `scan_limit` videos, then order them by view count (desc).
+def list_channel_candidates(channel: ChannelConfig, settings: Settings, layer0: filters.Layer0Config,
+                            cookies: str | None) -> list[dict]:
+    """Flat-list the newest `scan_limit` videos, apply Layer 0 (config/filters.yaml), order by views.
 
-    The /videos tab excludes Shorts. The flat listing has no upload date, so the date
-    filter is applied later, when each candidate's full metadata is fetched.
+    The flat listing has no upload date, so the date filter is applied later, when each
+    candidate's full metadata is fetched.
     """
     options = build_ydl_options(cookies, extract_flat="in_playlist", playlistend=settings.scan_limit)
     with YoutubeDL(options) as ydl:
@@ -202,17 +203,15 @@ def list_channel_candidates(channel: ChannelConfig, settings: Settings, cookies:
     entries = [e for e in (info.get("entries") or []) if e and e.get("id")]
     log.info("[%s] listed %d videos (scan_limit=%d)", channel.name, len(entries), settings.scan_limit)
 
-    candidates = []
-    for entry in entries:
-        title = (entry.get("title") or "").lower()
-        if channel.title_keywords and not any(k in title for k in channel.title_keywords):
-            continue
-        duration = entry.get("duration")
-        if duration is not None and duration < settings.min_duration_seconds:
-            continue
-        candidates.append(entry)
+    if channel.title_keywords:
+        entries = [e for e in entries
+                   if any(k in (e.get("title") or "").lower() for k in channel.title_keywords)]
+    result = filters.apply_layer0(entries, layer0)
+    filters.save_layer0(channel.name, result)
+    for line in filters.format_report(channel.name, result["stats"]).splitlines():
+        log.info(line)
+    candidates = result["kept"]
     candidates.sort(key=lambda e: e.get("view_count") or 0, reverse=True)
-    log.info("[%s] %d candidates after title/duration filters", channel.name, len(candidates))
     return candidates
 
 
@@ -273,7 +272,8 @@ def get_transcript(ydl: YoutubeDL, info: dict, settings: Settings) -> tuple[str,
 # ---------------------------------------------------------------------- per video
 
 
-def process_video(ydl: YoutubeDL, entry: dict, channel: ChannelConfig, settings: Settings, out_dir: Path) -> None:
+def process_video(ydl: YoutubeDL, entry: dict, channel: ChannelConfig, settings: Settings,
+                  layer0: filters.Layer0Config, out_dir: Path) -> None:
     video_id = entry["id"]
 
     def fetch_info() -> dict:
@@ -290,8 +290,8 @@ def process_video(ydl: YoutubeDL, entry: dict, channel: ChannelConfig, settings:
     if info.get("live_status") in ("is_live", "is_upcoming"):
         raise SkipVideo("live/upcoming")
     duration = info.get("duration")
-    if duration is not None and duration < settings.min_duration_seconds:
-        raise SkipVideo("too short (Short?)")
+    if duration is not None and not layer0.min_duration_seconds <= duration <= layer0.max_duration_seconds:
+        raise SkipVideo("duration outside Layer 0 limits")
     upload_date = datetime.strptime(info["upload_date"], "%Y%m%d").date() if info.get("upload_date") else None
     if upload_date is None:
         raise SkipVideo("no upload date")
@@ -304,6 +304,8 @@ def process_video(ydl: YoutubeDL, entry: dict, channel: ChannelConfig, settings:
         "video_id": video_id,
         "title": info.get("title"),
         "channel": info.get("channel") or channel.name,
+        "channel_id": info.get("channel_id"),
+        "description": info.get("description"),
         "url": info.get("webpage_url") or f"https://www.youtube.com/watch?v={video_id}",
         "upload_date": upload_date.isoformat(),
         "view_count": info.get("view_count"),
@@ -332,10 +334,10 @@ class ChannelStats:
     failed: Counter = field(default_factory=Counter)
 
 
-def process_channel(channel: ChannelConfig, settings: Settings, cookies: str | None,
-                    retry_failed: bool, dry_run: bool) -> ChannelStats:
+def process_channel(channel: ChannelConfig, settings: Settings, layer0: filters.Layer0Config,
+                    cookies: str | None, retry_failed: bool, dry_run: bool) -> ChannelStats:
     stats = ChannelStats()
-    candidates = list_channel_candidates(channel, settings, cookies)
+    candidates = list_channel_candidates(channel, settings, layer0, cookies)
     if dry_run:
         for entry in candidates[: channel.max_videos]:
             print(f"  {entry.get('view_count') or '?':>10} views  {entry['id']}  {entry.get('title')}")
@@ -360,7 +362,7 @@ def process_channel(channel: ChannelConfig, settings: Settings, cookies: str | N
 
             time.sleep(random.uniform(settings.sleep_min, settings.sleep_max))
             try:
-                process_video(ydl, entry, channel, settings, out_dir)
+                process_video(ydl, entry, channel, settings, layer0, out_dir)
                 stats.downloaded += 1
                 saved += 1
             except SkipVideo as exc:
@@ -422,12 +424,13 @@ def main() -> None:
         for channel in channels:
             channel.max_videos = args.max_videos
 
+    layer0 = filters.load_layer0("default")
     results: dict[str, ChannelStats] = {}
     for channel in channels:
         log.info("=== %s (%s) | max_videos=%d min_date=%s ===",
                  channel.name, channel.handle, channel.max_videos, channel.min_date)
         results[channel.name] = process_channel(
-            channel, settings, args.cookies_from_browser, args.retry_failed, args.dry_run)
+            channel, settings, layer0, args.cookies_from_browser, args.retry_failed, args.dry_run)
     if not args.dry_run:
         print_summary(results)
 

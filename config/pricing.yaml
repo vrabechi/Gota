@@ -1,0 +1,19 @@
+# VERIFICAR: fill every value below from the OFFICIAL Anthropic pricing page before any paid run.
+# Units: USD per 1,000,000 tokens (batch_discount is a fraction, e.g. 0.5 = Batch API pays 50% of the price).
+# Paid calls are REFUSED while any value needed by the command is still "VERIFICAR" (or empty).
+# Cost estimates in USD are also unavailable until the values are filled.
+
+batch_discount: VERIFICAR
+
+models:
+  claude-haiku-5-5:
+    input: VERIFICAR
+    output: VERIFICAR
+    cache_read: VERIFICAR
+    cache_write: VERIFICAR
+
+  claude-sonnet-5-5:
+    input: VERIFICAR
+    output: VERIFICAR
+    cache_read: VERIFICAR
+    cache_write: VERIFICAR

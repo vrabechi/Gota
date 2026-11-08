@@ -4,8 +4,8 @@ settings:
   sleep_max: 6
   max_retries: 3          # exponential backoff with jitter between attempts
   backoff_base: 5
-  min_duration_seconds: 90   # drops Shorts
   scan_limit: 150         # newest N videos of the channel considered per run
+  # Duration/views/title filters live in config/filters.yaml (Layer 0).
   default_max_age_months: 24 # used when a channel has no min_date
 
 channels:

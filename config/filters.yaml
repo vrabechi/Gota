@@ -1,0 +1,50 @@
+# Funnel configuration. Everything here is read at run time; nothing is hard-coded.
+#
+# Layer 0: metadata only, no LLM. Runs on the fast yt-dlp listing (title, duration, views).
+# Layer 1: cheap LLM triage (title + description + first N chars of transcript).
+# Layer 2: full extraction (configured later, in config/extraction.yaml).
+
+layer0:
+  default:
+    min_duration_seconds: 480     # 8 min; also removes Shorts
+    max_duration_seconds: 5400    # 90 min
+    # Keep videos whose views are >= this percentile of their own channel.
+    views_percentile: 40
+    min_group_size_for_percentile: 8   # smaller groups are not filtered by views (too noisy)
+    # Use views/day instead of raw views. Needs the upload date, which the fast listing
+    # does NOT provide: when the date is missing it falls back to raw views (counted in the report).
+    views_per_day: false
+    # Title rules: prefilter_score = sum(boost weights matched) - sum(penalize weights matched).
+    # Videos with prefilter_score < prefilter_cutoff are dropped. Patterns are case-insensitive regex.
+    prefilter_cutoff: 0
+    boost:
+      - {pattern: 'how i built',                    weight: 2}
+      - {pattern: '\$\s?\d[\d,.]*\s?[kKmM]?\s?(/|per|a)\s?(month|mo|year)', weight: 2}
+      - {pattern: '\$\s?\d[\d,.]*\s?[kKmM]?\s?(MRR|ARR)',                  weight: 2}
+      - {pattern: 'i bought',                       weight: 2}
+      - {pattern: 'case study',                     weight: 2}
+      - {pattern: 'side project',                   weight: 2}
+      - {pattern: 'interview',                      weight: 1}
+    penalize:
+      - {pattern: '\b\d+\s+(\w+\s+){0,2}(ideas|ways|tips)\b', weight: 2}
+      - {pattern: 'reaction',                      weight: 2}
+      - {pattern: 'podcast clip',                  weight: 2}
+      - {pattern: 'motivation',                    weight: 2}
+
+  # Overrides applied on top of `default` by the `discover` command.
+  discover:
+    views_per_day: true
+
+layer1:
+  model: claude-haiku-5-5
+  prompt_version: 1               # bump to invalidate the triage cache on purpose
+  description_chars: 1000
+  transcript_chars: 1500
+  effort: low
+  thinking: disabled              # classification only; keeps output tokens minimal
+  max_tokens: 400
+  est_output_tokens: 120          # used only for cost estimates
+  # A video moves on to Layer 2 only if BOTH conditions hold.
+  require_concrete_business: true
+  min_relevance_score: 6
+  estimate_sample_size: 30        # requests measured exactly with count_tokens; the rest extrapolated

@@ -2,9 +2,7 @@
 
 Pipeline to find online business models that work in the US but are still underdeveloped in Brazil.
 
-- **Stage 1 (done):** download YouTube transcripts.
-- Stage 2 (pending approval): structured business extraction with the Anthropic API.
-- Stage 3 (pending): scored ranking report.
+Funnel: **Layer 0** (free metadata filters) -> download transcripts -> **Layer 1** (Haiku triage) -> **Layer 2** (full extraction, pending) -> ranking (pending).
 
 ## Setup
 
@@ -12,18 +10,37 @@ Pipeline to find online business models that work in the US but are still underd
 uv sync
 ```
 
-## Stage 1: download transcripts
+Paid steps need `ANTHROPIC_API_KEY` (or `ant auth login`) and verified prices in `config/pricing.yaml`.
 
-Edit `config/channels.yaml` (channels, `max_videos`, `min_date`, optional `title_keywords`), then:
+## Config files
+
+| File | What it controls |
+|---|---|
+| `config/channels.yaml` | channels, `max_videos`, `min_date`, sleep/retry settings, `scan_limit` |
+| `config/filters.yaml` | Layer 0 rules (duration, views percentile, title regex boost/penalize) and Layer 1 (model, thresholds, prompt version) |
+| `config/pricing.yaml` | USD per 1M tokens. Values marked `VERIFICAR` block every paid call until you fill them |
+
+## Commands
 
 ```
-uv run python src/download.py --channel starter-story --max-videos 3   # small test
-uv run python src/download.py                                          # all channels
+# Layer 0: report on the fast channel listing (no downloads, no cost)
+uv run python src/cli.py layer0 [--channel starter-story] [--show-kept 10]
+
+# Download transcripts of the videos that survive Layer 0
+uv run python src/download.py [--channel NAME] [--max-videos N] [--dry-run] [--retry-failed] [--cookies-from-browser chrome]
+
+# Layer 1 triage. Without --yes it only prints the estimate.
+uv run python src/cli.py triage [--channel NAME] [--limit N] [--sync] [--yes]
+
+# Entries/exits and cost per layer; --details lists each triaged video
+uv run python src/cli.py funnel [--details]
 ```
 
-Useful flags: `--dry-run` (list only), `--retry-failed`, `--cookies-from-browser chrome` (if YouTube blocks requests).
+## Behaviour
 
-- Output: `data/transcripts/<channel>/<video_id>.json`
-- Re-running skips videos already saved and videos that failed permanently (e.g. no captions). Failures are logged in `data/failures.jsonl`; the full log is `data/logs/download.log`.
-- Candidates are the newest `scan_limit` videos of each channel, taken in descending view-count order, keeping only those newer than `min_date` (default: last 24 months).
-- Captions: manual English first, then auto-generated (original language track), then `youtube-transcript-api` as fallback.
+- **Resumable and cached.** Downloads skip existing files and permanent failures (`data/failures.jsonl`). Layer 1 results are cached in `data/triage/<video_id>.json`; changing thresholds never re-calls the API, only bumping `layer1.prompt_version` or the model does. Batches are resumed from `data/batches/`.
+- **Layer 0** attributes each dropped video to the first stage that removed it (duration, then views percentile per channel, then title score) and reports how often each title rule matched, dropped and kept videos.
+- **Batch vs `--sync`.** Batch is cheaper but can take up to an hour; `--sync` is immediate and full price, handy for small samples.
+- **Cost safety.** `triage` prints a token and cost estimate first. With `VERIFICAR` placeholders in `pricing.yaml` the USD estimate is unavailable and `--yes` is refused.
+- Output: `data/transcripts/<channel>/<video_id>.json`, `data/triage/`, `data/funnel/layer0_<channel>.json`, logs in `data/logs/`.
+- `views_per_day` needs the upload date, which the fast yt-dlp listing does not provide; when missing it falls back to raw views (counted in the Layer 0 report).
