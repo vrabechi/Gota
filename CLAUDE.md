@@ -31,5 +31,7 @@ Pipeline em Python que coleta conteúdo de empreendedorismo online (YouTube prim
 ## Estado atual
 - Etapa 1 (download) funciona. Etapas 2/3 estão sendo construídas do zero seguindo o plano acordado: llm.py, filters.py, triage.py, extract.py, discover.py, snowball.py, dedupe.py, deep_dive.py, rank.py, cli.py.
 - Sequência de entrega: (1) llm.py + Camada 0 + relatório do funil em amostra de ~40 vídeos; (2) Camada 1 nessa amostra, depois PARAR para eu validar os cortes; (3) extract, dedupe, rank, deep_dive; (4) discover e snowball.
+- Passos (1) e (2) construídos (commit 6d7feaa): llm.py, filters.py, triage.py, cli.py (layer0, triage, funnel). Camada 0 testada nos 5 canais; amostra de 40 vídeos baixada (starter-story e my-first-million). Camada 1 AINDA NÃO rodou: falta preencher config/pricing.yaml e definir ANTHROPIC_API_KEY. Aguardando validação dos cortes antes do passo (3).
+- Limitação conhecida: a listagem rápida do yt-dlp não traz data de upload, então views_per_day cai para views brutas até haver metadados completos.
 - Camada 2 começa com Sonnet 5.5; comparar com Opus 5.5 em ~20 vídeos antes de decidir.
 - Mantenha esta seção atualizada quando uma etapa for concluída ou uma decisão importante for tomada.
