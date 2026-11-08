@@ -2,7 +2,8 @@
 """Funnel commands. Download stays in download.py.
 
   python src/cli.py layer0  [--channel NAME ...]            Layer 0 report (free, no downloads)
-  python src/cli.py triage  [--channel NAME ...] [--limit N] [--sync] [--yes]
+  python src/cli.py collect --source hackernews [--limit N] [--dry-run]
+  python src/cli.py triage  [--source S ...] [--channel NAME ...] [--limit N] [--sync] [--yes]
   python src/cli.py funnel  [--details]                     in/out per layer + costs
 """
 from __future__ import annotations
@@ -14,10 +15,13 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import documents
 import download
 import filters
+import hackernews
 import llm
 import triage
+import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -38,8 +42,25 @@ def cmd_layer0(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_collect(args: argparse.Namespace) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    sources_cfg = yaml.safe_load((ROOT / "config" / "sources.yaml").read_text(encoding="utf-8"))
+    if args.source not in sources_cfg:
+        print(f"Unknown source {args.source!r}. Configured: {sorted(sources_cfg)}", file=sys.stderr)
+        return 2
+    result = hackernews.collect(sources_cfg[args.source], args.limit, args.dry_run, args.query)
+    if args.dry_run:
+        for entry in result["candidates"][:args.show]:
+            print(f"  {entry['score']:>5} pts {entry['num_comments']:>4} comments  {entry['id']}  {entry['title']}")
+        print(f"{len(result['candidates'])} candidates would be downloaded.")
+    else:
+        print(f"collect {args.source}: downloaded={result['downloaded']} "
+              f"already_present={result['already_present']} failed={result['failed']}")
+    return 0
+
+
 def cmd_triage(args: argparse.Namespace) -> int:
-    return triage.run(args.channel, args.limit, args.sync, args.yes)
+    return triage.run(args.channel, args.limit, args.sync, args.yes, args.source)
 
 
 def cmd_funnel(args: argparse.Namespace) -> int:
@@ -53,14 +74,21 @@ def cmd_funnel(args: argparse.Namespace) -> int:
         print(f"  Layer 0  {data['label']:<20} {data['stats']['entered']:>4} in -> {data['stats']['kept']:>4} out")
     print(f"  Layer 0  {'TOTAL':<20} {entered:>4} in -> {kept:>4} out   cost: US$ 0 (metadata only)")
 
-    records = triage.load_transcripts()
-    print(f"  Download {'transcripts on disk':<20} {len(records):>4}")
+    records = documents.load_all()
+    by_source = Counter(r["source"] for r in records)
+    print(f"  Download {'documents on disk':<20} {len(records):>4}   (" +
+          ", ".join(f"{s}: {n}" for s, n in sorted(by_source.items())) + ")")
 
-    cached = [e for r in records if (e := triage.load_cached(r["video_id"], cfg))]
+    cached = [e for r in records if (e := triage.load_cached(r, cfg))]
     passed = [e for e in cached if triage.passes_layer1(e, cfg)]
     print(f"  Layer 1  {'triaged (cached)':<20} {len(records):>4} in -> {len(cached):>4} triaged, "
           f"{len(passed)} pass (concrete_business={cfg['require_concrete_business']}, "
           f"score>={cfg['min_relevance_score']})")
+    for source in sorted(by_source):
+        source_cached = [e for e in cached if e.get("source", "youtube") == source]
+        source_passed = [e for e in source_cached if triage.passes_layer1(e, cfg)]
+        print(f"           {source:<20} {by_source[source]:>4} in -> {len(source_cached):>4} triaged, "
+              f"{len(source_passed)} pass")
     tokens_in = sum(e["usage"]["input_tokens"] for e in cached)
     tokens_out = sum(e["usage"]["output_tokens"] for e in cached)
     pricing = llm.load_pricing()
@@ -104,8 +132,17 @@ def main() -> int:
     p0.add_argument("--show-kept", type=int, default=0, metavar="N", help="print the top N kept titles")
     p0.set_defaults(func=cmd_layer0)
 
+    pc = sub.add_parser("collect", help="download documents from a non-YouTube source (see config/sources.yaml)")
+    pc.add_argument("--source", required=True, help="hackernews")
+    pc.add_argument("--query", action="append", help="run only this named query from sources.yaml (repeatable)")
+    pc.add_argument("--limit", type=int, help="keep only the N highest-engagement candidates")
+    pc.add_argument("--dry-run", action="store_true", help="search + Layer 0 only, download nothing")
+    pc.add_argument("--show", type=int, default=15, help="with --dry-run, how many candidates to print")
+    pc.set_defaults(func=cmd_collect)
+
     p1 = sub.add_parser("triage", help="Layer 1: Haiku triage of downloaded transcripts (paid; estimate first)")
-    p1.add_argument("--channel", action="append")
+    p1.add_argument("--channel", action="append", help="YouTube channel slug (repeatable)")
+    p1.add_argument("--source", action="append", help="youtube, hackernews... (repeatable); default: all")
     p1.add_argument("--limit", type=int)
     p1.add_argument("--sync", action="store_true", help="plain API calls instead of Batch (no discount, instant)")
     p1.add_argument("--yes", action="store_true", help="actually run the paid calls after seeing the estimate")

@@ -1,27 +1,26 @@
-"""Layer 1 of the funnel: cheap LLM triage (title + description + start of transcript)."""
+"""Layer 1 of the funnel: cheap LLM triage (title + metadata + start of the text). Any source."""
 from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
 
+import documents
 import filters
 import llm
 
 ROOT = Path(__file__).resolve().parent.parent
-TRANSCRIPTS_DIR = ROOT / "data" / "transcripts"
 TRIAGE_DIR = ROOT / "data" / "triage"
 
-SYSTEM_PROMPT = """\
-You triage YouTube videos for a research pipeline. The pipeline looks for concrete online business \
+_PROMPT_TEMPLATE = """\
+You triage {items} for a research pipeline. The pipeline looks for concrete online business \
 models (software products, info products, content/SEO sites, services and agencies, marketplaces, \
 acquisitions of small businesses) that a solo technical operator could replicate.
 
-You only see: title, channel, duration, view count, the start of the description, and the first \
-characters of the transcript. Judge from that text alone. Never assume facts that are not in the text.
+You only see: {seen}. Judge from that text alone. Never assume facts that are not in the text.
 
 Return JSON with exactly these fields:
-- has_concrete_business: true only if the video centres on at least one specific, identifiable \
+- has_concrete_business: true only if the {item} centres on at least one specific, identifiable \
 business or product (named, or described concretely: what it sells and to whom) that someone built, \
 bought or operates. Generic advice, mindset, news, tool tutorials or sales pitches with no such \
 business: false.
@@ -30,12 +29,29 @@ users, costs, time to results). Vague claims without figures: false.
 - speaker_role: "operator" if the main speaker talks about a business they run (a guest founder counts); \
 "commentator" if the main speaker analyses other people's businesses, ideas or trends; "interviewer" if \
 the format is a host mainly questioning a guest who runs the business; null if the text does not show it.
-- relevance_score: integer 0-10 for how useful the video is for finding replicable business models. \
+- relevance_score: integer 0-10 for how useful the {item} is for finding replicable business models. \
 0-2: no business content. 3-5: business content but vague, generic or hard to replicate. 6-8: a concrete \
 business with a clear model and some figures. 9-10: several concrete, replicable businesses or one \
 described in detail with verifiable-sounding figures.
 - reason: one short sentence justifying the score.
 """
+
+SOURCE_PROMPT_FIELDS = {
+    "youtube": {
+        "items": "YouTube videos", "item": "video",
+        "seen": "title, channel, duration, view count, the start of the description, and the first "
+                "characters of the transcript",
+    },
+    "hackernews": {
+        "items": "Hacker News posts", "item": "post",
+        "seen": "title, points, comment count, the post text (if any) and the start of the top-level "
+                "comments. Link posts have no text beyond the title: linked pages are not available, "
+                "so judge from the title and the comments. A comment's author may be the founder",
+    },
+}
+
+SYSTEM_PROMPTS = {source: _PROMPT_TEMPLATE.format(**fields) for source, fields in SOURCE_PROMPT_FIELDS.items()}
+SYSTEM_PROMPT = SYSTEM_PROMPTS["youtube"]  # kept for backwards compatibility
 
 TRIAGE_SCHEMA = {
     "type": "object",
@@ -61,34 +77,33 @@ def load_cfg() -> dict:
 # ---------------------------------------------------------------------------- inputs
 
 
-def load_transcripts(channels: list[str] | None = None) -> list[dict]:
-    records = []
-    for path in sorted(TRANSCRIPTS_DIR.glob("*/*.json")):
-        if channels and path.parent.name not in channels:
-            continue
-        record = json.loads(path.read_text(encoding="utf-8"))
-        record["_channel_dir"] = path.parent.name
-        records.append(record)
-    return records
+def prompt_version(cfg: dict, source: str) -> int:
+    return cfg["prompt_versions"][source]
 
 
-def build_user_text(record: dict, cfg: dict) -> str:
-    description = (record.get("description") or "").strip()[: cfg["description_chars"]] or "(not available)"
-    transcript = (record.get("transcript_text") or "")[: cfg["transcript_chars"]]
-    minutes = round((record.get("duration") or 0) / 60)
-    return (f"Title: {record.get('title')}\n"
-            f"Channel: {record.get('channel')}\n"
-            f"Duration: {minutes} min | Views: {record.get('view_count')}\n\n"
-            f"Description (start):\n{description}\n\n"
-            f"Transcript (first {cfg['transcript_chars']} characters):\n{transcript}")
+def build_user_text(doc: dict, cfg: dict) -> str:
+    meta, engagement = doc.get("meta") or {}, doc.get("engagement") or {}
+    body = (doc.get("text") or "")[: cfg["transcript_chars"]]
+    if doc["source"] == "youtube":
+        description = (meta.get("description") or "").strip()[: cfg["description_chars"]] or "(not available)"
+        minutes = round((meta.get("duration") or 0) / 60)
+        return (f"Title: {doc.get('title')}\n"
+                f"Channel: {doc.get('author')}\n"
+                f"Duration: {minutes} min | Views: {engagement.get('views')}\n\n"
+                f"Description (start):\n{description}\n\n"
+                f"Transcript (first {cfg['transcript_chars']} characters):\n{body}")
+    return (f"Title: {doc.get('title')}\n"
+            f"Source: {doc['source']} | Author: {doc.get('author')} | Points: {engagement.get('score')} | "
+            f"Comments: {engagement.get('comments')}\n\n"
+            f"Text (first {cfg['transcript_chars']} characters):\n{body or '(no text)'}")
 
 
-def build_params(record: dict, cfg: dict) -> dict:
+def build_params(doc: dict, cfg: dict) -> dict:
     params = {
         "model": cfg["model"],
         "max_tokens": cfg["max_tokens"],
-        "system": SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": build_user_text(record, cfg)}],
+        "system": SYSTEM_PROMPTS[doc["source"]],
+        "messages": [{"role": "user", "content": build_user_text(doc, cfg)}],
         "output_config": {"effort": cfg["effort"], "format": {"type": "json_schema", "schema": TRIAGE_SCHEMA}},
     }
     if cfg.get("thinking") == "disabled":
@@ -99,14 +114,15 @@ def build_params(record: dict, cfg: dict) -> dict:
 # ----------------------------------------------------------------------------- cache
 
 
-def cache_path(video_id: str) -> Path:
-    return TRIAGE_DIR / f"{video_id}.json"
+def cache_path(key: str) -> Path:
+    return TRIAGE_DIR / f"{key}.json"
 
 
-def load_cached(video_id: str, cfg: dict) -> dict | None:
-    """Cached result if it was produced with the current model and prompt_version."""
-    entry = llm.read_json(cache_path(video_id))
-    if entry and entry.get("model") == cfg["model"] and entry.get("prompt_version") == cfg["prompt_version"]:
+def load_cached(doc: dict, cfg: dict) -> dict | None:
+    """Cached result if it was produced with the current model and the source's prompt_version."""
+    entry = llm.read_json(cache_path(documents.doc_key(doc)))
+    if entry and entry.get("model") == cfg["model"] \
+            and entry.get("prompt_version") == prompt_version(cfg, doc["source"]):
         return entry
     return None
 
@@ -124,13 +140,14 @@ def validate_result(raw_text: str) -> dict | None:
         return None
 
 
-def save_result(record: dict, cfg: dict, result: dict, usage, via_batch: bool) -> None:
-    llm.write_json(cache_path(record["video_id"]), {
-        "video_id": record["video_id"],
-        "channel": record.get("channel"),
-        "title": record.get("title"),
+def save_result(doc: dict, cfg: dict, result: dict, usage, via_batch: bool) -> None:
+    llm.write_json(cache_path(documents.doc_key(doc)), {
+        "video_id": doc["source_id"],   # historical name, kept so old cache entries stay readable
+        "source": doc["source"],
+        "channel": doc.get("author"),
+        "title": doc.get("title"),
         "model": cfg["model"],
-        "prompt_version": cfg["prompt_version"],
+        "prompt_version": prompt_version(cfg, doc["source"]),
         "result": result,
         "usage": {"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens},
         "via_batch": via_batch,
@@ -154,11 +171,11 @@ def estimate_tokens(requests: dict[str, dict], cfg: dict) -> dict:
     sample_ids = ids[: cfg["estimate_sample_size"]]
     try:
         client = llm.get_client()
-        counts = [llm.count_input_tokens(client, cfg["model"], SYSTEM_PROMPT,
+        counts = [llm.count_input_tokens(client, cfg["model"], requests[i]["system"],
                                          requests[i]["messages"][0]["content"]) for i in sample_ids]
         method = f"count_tokens on {len(sample_ids)} of {len(ids)} requests, extrapolated"
     except Exception as exc:  # noqa: BLE001 - missing credentials, network...
-        counts = [llm.rough_token_estimate(SYSTEM_PROMPT, requests[i]["messages"][0]["content"])
+        counts = [llm.rough_token_estimate(requests[i]["system"], requests[i]["messages"][0]["content"])
                   for i in sample_ids]
         method = f"ROUGH heuristic (chars/3.5), count_tokens unavailable: {type(exc).__name__}"
     mean = sum(counts) / len(counts)
@@ -169,17 +186,18 @@ def estimate_tokens(requests: dict[str, dict], cfg: dict) -> dict:
 # ----------------------------------------------------------------------------- run
 
 
-def run(channels: list[str] | None, limit: int | None, sync: bool, yes: bool) -> int:
+def run(channels: list[str] | None, limit: int | None, sync: bool, yes: bool,
+        sources: list[str] | None = None) -> int:
     cfg = load_cfg()
-    records = load_transcripts(channels)
-    pending = [r for r in records if load_cached(r["video_id"], cfg) is None]
+    docs = documents.load_all(sources, channels)
+    pending = [d for d in docs if load_cached(d, cfg) is None]
     if limit:
         pending = pending[:limit]
-    print(f"Layer 1: {len(records)} transcripts, {len(records) - len(pending)} cached, {len(pending)} to triage.")
+    print(f"Layer 1: {len(docs)} documents, {len(docs) - len(pending)} cached, {len(pending)} to triage.")
     if not pending:
         return 0
 
-    requests = {r["video_id"]: build_params(r, cfg) for r in pending}
+    requests = {documents.doc_key(d): build_params(d, cfg) for d in pending}
     estimate = estimate_tokens(requests, cfg)
     batch = not sync
     cost = llm.cost_usd(cfg["model"], estimate["input_tokens"], estimate["output_tokens"], batch)
@@ -199,37 +217,37 @@ def run(channels: list[str] | None, limit: int | None, sync: bool, yes: bool) ->
         return 2
 
     client = llm.get_client()
-    by_id = {r["video_id"]: r for r in pending}
+    by_key = {documents.doc_key(d): d for d in pending}
     saved = invalid = failed = 0
     if sync:
-        for video_id, params in requests.items():
+        for key, params in requests.items():
             try:
                 message = client.messages.create(**params)
             except Exception as exc:  # noqa: BLE001
-                print(f"  {video_id}: API error {type(exc).__name__}: {exc}", file=sys.stderr)
+                print(f"  {key}: API error {type(exc).__name__}: {exc}", file=sys.stderr)
                 failed += 1
                 continue
             result = validate_result(llm.message_text(message))
             if result is None:
                 invalid += 1
                 continue
-            save_result(by_id[video_id], cfg, result, message.usage, via_batch=False)
+            save_result(by_key[key], cfg, result, message.usage, via_batch=False)
             saved += 1
     else:
         batch_id = llm.submit_or_resume_batch(client, "triage", requests)
         llm.wait_for_batch(client, batch_id)
-        for video_id, message, error in llm.iter_batch_results(client, batch_id):
-            if video_id not in by_id:
+        for key, message, error in llm.iter_batch_results(client, batch_id):
+            if key not in by_key:
                 continue
             if message is None:
-                print(f"  {video_id}: batch result {error}", file=sys.stderr)
+                print(f"  {key}: batch result {error}", file=sys.stderr)
                 failed += 1
                 continue
             result = validate_result(llm.message_text(message))
             if result is None:
                 invalid += 1
                 continue
-            save_result(by_id[video_id], cfg, result, message.usage, via_batch=True)
+            save_result(by_key[key], cfg, result, message.usage, via_batch=True)
             saved += 1
     print(f"Layer 1 done: saved={saved} invalid_output={invalid} failed={failed} (rerun to retry the latter two)")
     return 0

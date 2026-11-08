@@ -35,9 +35,29 @@ layer0:
   discover:
     views_per_day: true
 
+  # Hacker News: no duration. Engagement is filtered per query by `min_points` in config/sources.yaml,
+  # so the percentile stage is off. Only title rules remain here.
+  hackernews:
+    metric_field: score
+    min_duration_seconds: null
+    max_duration_seconds: null
+    views_percentile: 0
+    prefilter_cutoff: 0
+    boost:
+      - {pattern: '\bMRR\b|\bARR\b',                              weight: 2}
+      - {pattern: '\$\s?\d[\d,.]*\s?[kKmM]?\s?(/|per|a)\s?(month|mo|year)', weight: 2}
+      - {pattern: 'i (built|made|quit|bootstrapped)',             weight: 1}
+      - {pattern: 'bootstrapped|profitable|revenue',              weight: 1}
+    penalize:
+      - {pattern: 'who is hiring|who wants to be hired|freelancer', weight: 3}
+      - {pattern: 'what are you working on|what are you reading', weight: 1}
+      - {pattern: '\bpoll\b',                                      weight: 3}
+
 layer1:
   model: claude-haiku-5-5
-  prompt_version: 1               # bump to invalidate the triage cache on purpose
+  prompt_versions:                # bump a source's version to invalidate ITS triage cache on purpose
+    youtube: 1
+    hackernews: 1
   description_chars: 1000
   transcript_chars: 1500
   effort: low

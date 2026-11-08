@@ -36,6 +36,19 @@ uv run python src/cli.py triage [--channel NAME] [--limit N] [--sync] [--yes]
 uv run python src/cli.py funnel [--details]
 ```
 
+## Sources
+
+All sources are converted to one document format (`src/documents.py`: source, source_id, url, date, author, title, text, engagement, meta), so triage and the funnel work on any of them.
+
+| Source | Command | Config | Status |
+|---|---|---|---|
+| YouTube | `src/download.py` | `config/channels.yaml` | working (`yt-dlp`, unofficial) |
+| Hacker News | `uv run python src/cli.py collect --source hackernews [--query NAME] [--limit N] [--dry-run]` | `config/sources.yaml` | working; terms of use of the Algolia API not verified |
+| Product Hunt | - | - | not built: API forbids commercial use, token needed, scraping forbidden by its ToS |
+| Reddit | - | - | not built: needs Reddit approval (Responsible Builder Policy) |
+
+Hacker News notes: the revenue-oriented queries return very few posts (about 64 in 24 months), while `show_hn` returns thousands of mostly hobby projects. Use `--query` to download only the queries you want. Linked pages are not fetched; a document is the post text plus top-level comments.
+
 ## Behaviour
 
 - **Resumable and cached.** Downloads skip existing files and permanent failures (`data/failures.jsonl`). Layer 1 results are cached in `data/triage/<video_id>.json`; changing thresholds never re-calls the API, only bumping `layer1.prompt_version` or the model does. Batches are resumed from `data/batches/`.

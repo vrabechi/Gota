@@ -24,12 +24,13 @@ class TitleRule:
 
 @dataclass
 class Layer0Config:
-    min_duration_seconds: int
-    max_duration_seconds: int
-    views_percentile: float
+    min_duration_seconds: int | None   # None = source has no duration (skip the duration stage)
+    max_duration_seconds: int | None
+    views_percentile: float            # 0 disables the percentile stage
     min_group_size_for_percentile: int
     views_per_day: bool
     prefilter_cutoff: float
+    metric_field: str = "view_count"   # engagement field used by the percentile stage
     boost: list[TitleRule] = field(default_factory=list)
     penalize: list[TitleRule] = field(default_factory=list)
 
@@ -48,13 +49,15 @@ def load_layer0(profile: str = "default", path: Path = FILTERS_FILE) -> Layer0Co
     merged = dict(layer0["default"])
     if profile != "default":
         merged.update(layer0.get(profile) or {})
+    optional_int = lambda v: None if v is None else int(v)  # noqa: E731
     return Layer0Config(
-        min_duration_seconds=int(merged["min_duration_seconds"]),
-        max_duration_seconds=int(merged["max_duration_seconds"]),
+        min_duration_seconds=optional_int(merged.get("min_duration_seconds")),
+        max_duration_seconds=optional_int(merged.get("max_duration_seconds")),
         views_percentile=float(merged["views_percentile"]),
         min_group_size_for_percentile=int(merged["min_group_size_for_percentile"]),
         views_per_day=bool(merged["views_per_day"]),
         prefilter_cutoff=float(merged["prefilter_cutoff"]),
+        metric_field=merged.get("metric_field", "view_count"),
         boost=_compile_rules(merged.get("boost")),
         penalize=_compile_rules(merged.get("penalize")),
     )
@@ -72,7 +75,7 @@ def _parse_upload_date(value: object) -> date | None:
 
 
 def _views_metric(entry: dict, cfg: Layer0Config, stats: Counter) -> float:
-    views = entry.get("view_count") or 0
+    views = entry.get(cfg.metric_field) or 0
     if not cfg.views_per_day:
         return float(views)
     uploaded = _parse_upload_date(entry.get("upload_date"))
@@ -99,21 +102,26 @@ def apply_layer0(entries: list[dict], cfg: Layer0Config) -> dict:
     after_duration = []
     for entry in entries:
         duration = entry.get("duration")
-        if duration is None or entry.get("live_status") in ("is_live", "is_upcoming"):
+        if cfg.min_duration_seconds is None and cfg.max_duration_seconds is None:
+            after_duration.append(entry)  # text sources have no duration
+        elif duration is None or entry.get("live_status") in ("is_live", "is_upcoming"):
             drop(entry, "duration:missing_or_live")
-        elif duration < cfg.min_duration_seconds:
+        elif cfg.min_duration_seconds is not None and duration < cfg.min_duration_seconds:
             drop(entry, "duration:too_short")
-        elif duration > cfg.max_duration_seconds:
+        elif cfg.max_duration_seconds is not None and duration > cfg.max_duration_seconds:
             drop(entry, "duration:too_long")
         else:
             after_duration.append(entry)
 
-    # Stage 2: views percentile within each channel.
+    # Stage 2: engagement percentile within each channel (skipped when views_percentile is 0).
     groups: dict[str, list[dict]] = defaultdict(list)
     for entry in after_duration:
         groups[entry.get("channel_id") or entry.get("channel") or "_all"].append(entry)
     after_views = []
     for members in groups.values():
+        if cfg.views_percentile <= 0:
+            after_views.extend(members)
+            continue
         if len(members) < cfg.min_group_size_for_percentile:
             stats["notes"]["views_percentile_skipped_small_group"] += len(members)
             after_views.extend(members)
@@ -169,7 +177,7 @@ def save_layer0(label: str, result: dict) -> Path:
     """Persist the stats plus kept/dropped ids so the funnel report can read them later."""
     FUNNEL_DIR.mkdir(parents=True, exist_ok=True)
     path = FUNNEL_DIR / f"layer0_{label}.json"
-    brief = lambda e: {"id": e["id"], "title": e.get("title"), "views": e.get("view_count"),
+    brief = lambda e: {"id": e["id"], "title": e.get("title"), "views": e.get("view_count") or e.get("score"),
                        "duration": e.get("duration"), "prefilter_score": e.get("prefilter_score"),
                        "drop_reason": e.get("drop_reason")}
     payload = {

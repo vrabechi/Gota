@@ -1,0 +1,19 @@
+# Non-YouTube sources. YouTube channels live in config/channels.yaml.
+#
+# Terms of use checked on 2026-11-08:
+#   hackernews: the official API README (github.com/HackerNews/API) states no terms and "no rate limit".
+#               The Algolia search page did not load, so its terms are NOT verified. Re-check before scaling up.
+
+hackernews:
+  max_age_months: 24
+  window_days: 30          # search is split in windows because one query returns at most 1000 hits
+  sleep_seconds: 0.3
+  comments_per_item: 15    # top-level comments kept per post (Algolia returns them in its own order)
+  comment_chars: 1200      # per comment
+  # Each query: tags, min_points, and optional `terms`. Algolia has no OR operator, so every term is
+  # searched separately (quote a term for an exact phrase) and the results are merged and deduplicated.
+  queries:
+    - {name: show_hn,        tags: show_hn,   min_points: 50}
+    - {name: ask_hn_revenue, tags: ask_hn,    min_points: 20, terms: ["revenue", "MRR", "profitable"]}
+    - {name: mrr_stories,    tags: story,     min_points: 30, terms: ["MRR", "ARR", "bootstrapped"]}
+    - {name: i_built,        tags: story,     min_points: 50, terms: ['"I built"', '"I made"', '"I quit"']}
