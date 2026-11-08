@@ -1,0 +1,9 @@
+[project]
+name = "gota"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml>=6.0.3",
+    "youtube-transcript-api>=1.2.5",
+    "yt-dlp>=2026.10.26",
+]

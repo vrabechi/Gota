@@ -1,0 +1,38 @@
+# Channels to download transcripts from. Handles were verified with yt-dlp on 2026-11-08.
+settings:
+  sleep_min: 2            # random pause between video requests (seconds)
+  sleep_max: 6
+  max_retries: 3          # exponential backoff with jitter between attempts
+  backoff_base: 5
+  min_duration_seconds: 90   # drops Shorts
+  scan_limit: 150         # newest N videos of the channel considered per run
+  default_max_age_months: 24 # used when a channel has no min_date
+
+channels:
+  - name: starter-story
+    handle: "@starterstory"
+    max_videos: 50
+    # min_date: 2024-11-08       # optional, overrides default_max_age_months
+    # title_keywords: []         # optional, keep only titles containing any of these
+
+  - name: my-first-million
+    handle: "@MyFirstMillionPod"
+    max_videos: 50
+
+  - name: greg-isenberg
+    handle: "@GregIsenberg"
+    max_videos: 50
+
+  - name: alex-hormozi
+    handle: "@AlexHormozi"
+    max_videos: 30
+
+  - name: codie-sanchez
+    handle: "@CodieSanchezCT"   # NOT @CodieSanchez (that handle has no videos tab)
+    max_videos: 30
+
+  # Indie Hackers: "@IndieHackers" resolves to a channel whose latest upload is unrelated
+  # (a Quran recitation), so it is NOT the official channel. Add the right handle/URL here once confirmed.
+  # - name: indie-hackers
+  #   handle: "@???"
+  #   max_videos: 30
