@@ -68,8 +68,23 @@ def cost_usd(model: str, input_tokens: float, output_tokens: float, batch: bool,
 # ------------------------------------------------------------------------------ client
 
 
+def load_dotenv(path: Path = ROOT / ".env") -> None:
+    """Minimal .env reader (KEY=VALUE lines). Real environment variables take precedence."""
+    import os
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip().removeprefix("export ").strip()
+        os.environ.setdefault(key, value.strip().strip("'\""))
+
+
 def get_client():
     import anthropic
+    load_dotenv()
     return anthropic.Anthropic()
 
 
