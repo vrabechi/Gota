@@ -4,14 +4,15 @@ settings:
   sleep_max: 6
   max_retries: 3          # exponential backoff with jitter between attempts
   backoff_base: 5
-  scan_limit: 150         # newest N videos of the channel considered per run
+  scan_limit: 2000        # newest N videos listed per channel (null = the whole channel). Listing is newest-first
+  stop_after_consecutive_old: 3  # stop a channel after N consecutive videos older than min_date
+  # max_videos is OPTIONAL per channel: omit it to download everything that passes the filters.
   # Duration/views/title filters live in config/filters.yaml (Layer 0).
   default_max_age_months: 24 # used when a channel has no min_date
 
 channels:
   - name: starter-story
     handle: "@starterstory"
-    max_videos: 50
     # min_date: 2024-11-08       # optional, overrides default_max_age_months
     # title_keywords: []         # optional, keep only titles containing any of these
     # languages: [en]            # optional caption languages in order of preference (default [en]).
@@ -20,40 +21,31 @@ channels:
 
   - name: my-first-million
     handle: "@MyFirstMillionPod"
-    max_videos: 50
 
   - name: greg-isenberg
     handle: "@GregIsenberg"
-    max_videos: 50
 
   - name: alex-hormozi
     handle: "@AlexHormozi"
-    max_videos: 30
 
   - name: codie-sanchez
     handle: "@CodieSanchezCT"   # NOT @CodieSanchez (that handle has no videos tab)
-    max_videos: 30
 
   # Added 2026-11-08 (handles verified with yt-dlp, found via revenue-oriented YouTube searches).
   - name: top-founders-latka
     handle: "@NathanLatkawatch"   # many cases are too big to replicate solo
-    max_videos: 30
 
   - name: koerner-office
     handle: "@thekoerneroffice"   # several recent episodes show 0 views ("early access"): the views filter drops them
-    max_videos: 30
 
   - name: florian-darroman
     handle: "@asyncr0ne"
-    max_videos: 30
 
   - name: saas-club
     handle: "@saasclub"
-    max_videos: 30
 
   - name: niche-pursuits
     handle: "@niche-pursuits"     # mixes SEO/software cases with unrelated Amazon-returns content
-    max_videos: 30
 
   # Indie Hackers: "@IndieHackers" resolves to a channel whose latest upload is unrelated
   # (a Quran recitation), so it is NOT the official channel. The site's terms forbid scraping, so no

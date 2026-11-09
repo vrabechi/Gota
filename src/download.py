@@ -71,7 +71,8 @@ class Settings:
     sleep_max: float = 6.0
     max_retries: int = 3
     backoff_base: float = 5.0
-    scan_limit: int = 150
+    scan_limit: int | None = 2000       # newest N videos listed per channel; None = the whole channel
+    stop_after_consecutive_old: int = 3  # listing is newest-first: stop a channel after N videos older than min_date
     default_max_age_months: int = 24
 
 
@@ -79,7 +80,7 @@ class Settings:
 class ChannelConfig:
     name: str
     handle: str
-    max_videos: int
+    max_videos: int | None  # None = no cap: download everything that passes the filters
     min_date: date
     title_keywords: list[str] = field(default_factory=list)
     languages: list[str] = field(default_factory=lambda: ["en"])  # caption languages, in order of preference
@@ -116,7 +117,7 @@ def load_config(path: Path) -> tuple[Settings, list[ChannelConfig]]:
             ChannelConfig(
                 name=item["name"],
                 handle=item["handle"],
-                max_videos=int(item.get("max_videos", 50)),
+                max_videos=int(item["max_videos"]) if item.get("max_videos") else None,
                 min_date=min_date,
                 title_keywords=[k.lower() for k in item.get("title_keywords") or []],
                 languages=list(item.get("languages") or ["en"]),
@@ -191,19 +192,20 @@ def record_failure(channel: str, entry: dict, reason: str, permanent: bool) -> N
 
 def list_channel_candidates(channel: ChannelConfig, settings: Settings, layer0: filters.Layer0Config,
                             cookies: str | None) -> list[dict]:
-    """Flat-list the newest `scan_limit` videos, apply Layer 0 (config/filters.yaml), order by views.
+    """Flat-list the channel (newest first), apply Layer 0 (config/filters.yaml). Order is kept: newest first.
 
     The flat listing has no upload date, so the date filter is applied later, when each
-    candidate's full metadata is fetched.
+    candidate's full metadata is fetched (and the channel stops at the first old videos).
     """
-    options = build_ydl_options(cookies, extract_flat="in_playlist", playlistend=settings.scan_limit)
+    extra = {"playlistend": settings.scan_limit} if settings.scan_limit else {}
+    options = build_ydl_options(cookies, extract_flat="in_playlist", **extra)
     with YoutubeDL(options) as ydl:
         info = with_retries(
             lambda: ydl.extract_info(channel_videos_url(channel.handle), download=False),
             settings, f"list {channel.name}",
         )
     entries = [e for e in (info.get("entries") or []) if e and e.get("id")]
-    log.info("[%s] listed %d videos (scan_limit=%d)", channel.name, len(entries), settings.scan_limit)
+    log.info("[%s] listed %d videos (scan_limit=%s)", channel.name, len(entries), settings.scan_limit)
 
     if channel.title_keywords:
         entries = [e for e in entries
@@ -212,9 +214,7 @@ def list_channel_candidates(channel: ChannelConfig, settings: Settings, layer0: 
     filters.save_layer0(channel.name, result)
     for line in filters.format_report(channel.name, result["stats"]).splitlines():
         log.info(line)
-    candidates = result["kept"]
-    candidates.sort(key=lambda e: e.get("view_count") or 0, reverse=True)
-    return candidates
+    return result["kept"]  # newest first, as listed by YouTube
 
 
 # ------------------------------------------------------------------------ transcript
@@ -356,15 +356,21 @@ def process_channel(channel: ChannelConfig, settings: Settings, layer0: filters.
     if dry_run:
         for entry in candidates[: channel.max_videos]:
             print(f"  {entry.get('view_count') or '?':>10} views  {entry['id']}  {entry.get('title')}")
+        print(f"  {len(candidates)} candidates (newest first)")
         return stats
 
     out_dir = TRANSCRIPTS_DIR / channel.name
     permanent_failures = set() if retry_failed else load_permanent_failures()
     saved = 0
+    consecutive_old = 0
 
     with YoutubeDL(build_ydl_options(cookies)) as ydl:
         for entry in candidates:
-            if saved >= channel.max_videos:
+            if channel.max_videos is not None and saved >= channel.max_videos:
+                break
+            if consecutive_old >= settings.stop_after_consecutive_old:
+                log.info("[%s] %d consecutive videos older than %s: stopping this channel",
+                         channel.name, consecutive_old, channel.min_date)
                 break
             video_id = entry["id"]
             if (out_dir / f"{video_id}.json").exists():
@@ -380,14 +386,18 @@ def process_channel(channel: ChannelConfig, settings: Settings, layer0: filters.
                 process_video(ydl, entry, channel, settings, layer0, out_dir)
                 stats.downloaded += 1
                 saved += 1
+                consecutive_old = 0
             except SkipVideo as exc:
                 stats.skipped[str(exc)] += 1
                 log.info("[%s] skipped %s: %s", channel.name, video_id, exc)
+                consecutive_old = consecutive_old + 1 if str(exc).startswith("older than") else 0
             except PermanentError as exc:
+                consecutive_old = 0
                 stats.failed[str(exc)[:80]] += 1
                 log.error("[%s] FAILED %s (permanent): %s", channel.name, video_id, exc)
                 record_failure(channel.name, entry, str(exc), permanent=True)
             except Exception as exc:  # noqa: BLE001
+                consecutive_old = 0
                 stats.failed[str(exc)[:80]] += 1
                 log.error("[%s] FAILED %s (after retries): %s", channel.name, video_id, exc)
                 record_failure(channel.name, entry, str(exc), permanent=False)
@@ -442,7 +452,7 @@ def main() -> None:
     layer0 = filters.load_layer0("default")
     results: dict[str, ChannelStats] = {}
     for channel in channels:
-        log.info("=== %s (%s) | max_videos=%d min_date=%s ===",
+        log.info("=== %s (%s) | max_videos=%s min_date=%s ===",
                  channel.name, channel.handle, channel.max_videos, channel.min_date)
         results[channel.name] = process_channel(
             channel, settings, layer0, args.cookies_from_browser, args.retry_failed, args.dry_run)

@@ -16,7 +16,7 @@ Paid steps need `ANTHROPIC_API_KEY` (or `ant auth login`) and verified prices in
 
 | File | What it controls |
 |---|---|
-| `config/channels.yaml` | channels, `max_videos`, `min_date`, sleep/retry settings, `scan_limit` |
+| `config/channels.yaml` | channels, `min_date`, sleep/retry settings, `scan_limit`, optional per-channel `max_videos` and `languages` |
 | `config/filters.yaml` | Layer 0 rules (duration, views percentile, title regex boost/penalize) and Layer 1 (model, thresholds, prompt version) |
 | `config/pricing.yaml` | USD per 1M tokens. Values marked `VERIFICAR` block every paid call until you fill them |
 
@@ -48,6 +48,9 @@ All sources are converted to one document format (`src/documents.py`: source, so
 | Reddit | - | - | not built: needs Reddit approval (Responsible Builder Policy) |
 
 Hacker News notes: the revenue-oriented queries return very few posts (about 64 in 24 months), while `show_hn` returns thousands of mostly hobby projects. Use `--query` to download only the queries you want. Linked pages are not fetched; a document is the post text plus top-level comments.
+
+### How the download scans a channel
+The channel listing is processed **newest first**, with no cap by default: every video that passes Layer 0 (and is within `min_date`, default 24 months) is downloaded. The listing has no upload date, so the date is checked per video, and a channel stops after `stop_after_consecutive_old` (3) consecutive videos older than `min_date`. `max_videos` is optional per channel (omit it for no cap; `--max-videos N` overrides it for a run, handy for tests). Relevance is decided later by Layer 1, which is cheap.
 
 ### Other languages
 Set `languages: [ja]` (or `[fr]`, `[es, en]`...) on a channel in `config/channels.yaml`. Captions are taken in that order; automatic captions are used only when the video's own language matches (YouTube lists machine translations for every video, so they are ignored). Layer 1 and extraction read non-English text directly and answer in English. The title regex rules in `config/filters.yaml` are English-only, so they do nothing for other languages.
