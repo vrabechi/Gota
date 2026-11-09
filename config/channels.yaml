@@ -31,8 +31,27 @@ channels:
     handle: "@CodieSanchezCT"   # NOT @CodieSanchez (that handle has no videos tab)
     max_videos: 30
 
+  # Added 2026-11-08 (handles verified with yt-dlp, found via revenue-oriented YouTube searches).
+  - name: top-founders-latka
+    handle: "@NathanLatkawatch"   # many cases are too big to replicate solo
+    max_videos: 30
+
+  - name: koerner-office
+    handle: "@thekoerneroffice"   # several recent episodes show 0 views ("early access"): the views filter drops them
+    max_videos: 30
+
+  - name: florian-darroman
+    handle: "@asyncr0ne"
+    max_videos: 30
+
+  - name: saas-club
+    handle: "@saasclub"
+    max_videos: 30
+
+  - name: niche-pursuits
+    handle: "@niche-pursuits"     # mixes SEO/software cases with unrelated Amazon-returns content
+    max_videos: 30
+
   # Indie Hackers: "@IndieHackers" resolves to a channel whose latest upload is unrelated
-  # (a Quran recitation), so it is NOT the official channel. Add the right handle/URL here once confirmed.
-  # - name: indie-hackers
-  #   handle: "@???"
-  #   max_videos: 30
+  # (a Quran recitation), so it is NOT the official channel. The site's terms forbid scraping, so no
+  # YouTube channel is configured. Add one here only if an official channel is confirmed.
