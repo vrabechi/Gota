@@ -9,13 +9,13 @@ layer0:
     min_duration_seconds: 480     # 8 min; also removes Shorts
     max_duration_seconds: 5400    # 90 min
     # Keep videos whose views are >= this percentile of their own channel.
-    views_percentile: 40
+    views_percentile: 0               # 0 = views filter OFF (was 40, see git history)
     min_group_size_for_percentile: 8   # smaller groups are not filtered by views (too noisy)
     # Use views/day instead of raw views. Needs the upload date, which the fast listing
     # does NOT provide: when the date is missing it falls back to raw views (counted in the report).
     views_per_day: false
     # Master switch for the title stage. false = title rules are ignored (kept below to re-enable later).
-    title_rules: false
+    title_rules: true
     # Title rules: prefilter_score = sum(boost weights matched) - sum(penalize weights matched).
     # Videos with prefilter_score < prefilter_cutoff are dropped. Patterns are case-insensitive regex.
     prefilter_cutoff: 0
