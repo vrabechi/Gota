@@ -112,10 +112,10 @@ def cmd_funnel(args: argparse.Namespace) -> int:
         histogram = Counter(e["result"]["relevance_score"] for e in cached)
         print("\nScore distribution: " + "  ".join(f"{s}:{histogram[s]}" for s in sorted(histogram)))
     if args.details:
-        print("\nscore role         conc nums  PASS  title -- reason")
+        print("\nscore conc nums  PASS  title -- reason")
         for e in sorted(cached, key=lambda e: -e["result"]["relevance_score"]):
             r = e["result"]
-            print(f"{r['relevance_score']:>5} {str(r['speaker_role']):<12} "
+            print(f"{r['relevance_score']:>5} "
                   f"{'Y' if r['has_concrete_business'] else 'n':>4} {'Y' if r['has_numbers'] else 'n':>4}  "
                   f"{'PASS' if triage.passes_layer1(e, cfg) else 'drop'}  {e['title']} -- {r['reason']}")
     return 0

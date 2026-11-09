@@ -58,8 +58,8 @@ layer0:
 layer1:
   model: claude-haiku-5-5
   prompt_versions:                # bump a source's version to invalidate ITS triage cache on purpose
-    youtube: 1
-    hackernews: 1
+    youtube: 2        # 2: speaker_role removed from the prompt and schema
+    hackernews: 2
   description_chars: 1000
   transcript_chars: 1500
   effort: low

@@ -26,9 +26,6 @@ bought or operates. Generic advice, mindset, news, tool tutorials or sales pitch
 business: false.
 - has_numbers: true only if the shown text contains concrete figures about a business (revenue, price, \
 users, costs, time to results). Vague claims without figures: false.
-- speaker_role: "operator" if the main speaker talks about a business they run (a guest founder counts); \
-"commentator" if the main speaker analyses other people's businesses, ideas or trends; "interviewer" if \
-the format is a host mainly questioning a guest who runs the business; null if the text does not show it.
 - relevance_score: integer 0-10 for how useful the {item} is for finding replicable business models. \
 0-2: no business content. 3-5: business content but vague, generic or hard to replicate. 6-8: a concrete \
 business with a clear model and some figures. 9-10: several concrete, replicable businesses or one \
@@ -58,14 +55,10 @@ TRIAGE_SCHEMA = {
     "properties": {
         "has_concrete_business": {"type": "boolean"},
         "has_numbers": {"type": "boolean"},
-        "speaker_role": {"anyOf": [
-            {"type": "string", "enum": ["operator", "commentator", "interviewer"]},
-            {"type": "null"},
-        ]},
         "relevance_score": {"type": "integer"},
         "reason": {"type": "string"},
     },
-    "required": ["has_concrete_business", "has_numbers", "speaker_role", "relevance_score", "reason"],
+    "required": ["has_concrete_business", "has_numbers", "relevance_score", "reason"],
     "additionalProperties": False,
 }
 
@@ -137,7 +130,6 @@ def validate_result(raw_text: str) -> dict | None:
         data = json.loads(raw_text)
         assert isinstance(data["has_concrete_business"], bool)
         assert isinstance(data["has_numbers"], bool)
-        assert data["speaker_role"] in ("operator", "commentator", "interviewer", None)
         assert isinstance(data["relevance_score"], int) and 0 <= data["relevance_score"] <= 10
         assert isinstance(data["reason"], str)
         return {k: data[k] for k in TRIAGE_SCHEMA["required"]}
