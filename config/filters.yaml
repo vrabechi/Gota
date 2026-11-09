@@ -14,6 +14,8 @@ layer0:
     # Use views/day instead of raw views. Needs the upload date, which the fast listing
     # does NOT provide: when the date is missing it falls back to raw views (counted in the report).
     views_per_day: false
+    # Master switch for the title stage. false = title rules are ignored (kept below to re-enable later).
+    title_rules: false
     # Title rules: prefilter_score = sum(boost weights matched) - sum(penalize weights matched).
     # Videos with prefilter_score < prefilter_cutoff are dropped. Patterns are case-insensitive regex.
     prefilter_cutoff: 0

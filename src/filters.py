@@ -31,6 +31,7 @@ class Layer0Config:
     views_per_day: bool
     prefilter_cutoff: float
     metric_field: str = "view_count"   # engagement field used by the percentile stage
+    title_rules_enabled: bool = True   # False skips the title stage (rules stay in the YAML)
     boost: list[TitleRule] = field(default_factory=list)
     penalize: list[TitleRule] = field(default_factory=list)
 
@@ -58,6 +59,7 @@ def load_layer0(profile: str = "default", path: Path = FILTERS_FILE) -> Layer0Co
         views_per_day=bool(merged["views_per_day"]),
         prefilter_cutoff=float(merged["prefilter_cutoff"]),
         metric_field=merged.get("metric_field", "view_count"),
+        title_rules_enabled=bool(merged.get("title_rules", True)),
         boost=_compile_rules(merged.get("boost")),
         penalize=_compile_rules(merged.get("penalize")),
     )
@@ -139,6 +141,9 @@ def apply_layer0(entries: list[dict], cfg: Layer0Config) -> dict:
     rule_stats: dict[str, Counter] = {}
     kept = []
     for entry in after_views:
+        if not cfg.title_rules_enabled:
+            kept.append({**entry, "prefilter_score": 0.0})
+            continue
         title = entry.get("title") or ""
         matched_boost = [r for r in cfg.boost if r.regex.search(title)]
         matched_penalty = [r for r in cfg.penalize if r.regex.search(title)]
