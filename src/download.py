@@ -82,6 +82,7 @@ class ChannelConfig:
     max_videos: int
     min_date: date
     title_keywords: list[str] = field(default_factory=list)
+    languages: list[str] = field(default_factory=lambda: ["en"])  # caption languages, in order of preference
 
 
 def subtract_months(day: date, months: int) -> date:
@@ -118,6 +119,7 @@ def load_config(path: Path) -> tuple[Settings, list[ChannelConfig]]:
                 max_videos=int(item.get("max_videos", 50)),
                 min_date=min_date,
                 title_keywords=[k.lower() for k in item.get("title_keywords") or []],
+                languages=list(item.get("languages") or ["en"]),
             )
         )
     return settings, channels
@@ -218,38 +220,50 @@ def list_channel_candidates(channel: ChannelConfig, settings: Settings, layer0: 
 # ------------------------------------------------------------------------ transcript
 
 
-def pick_caption(info: dict) -> tuple[str, str, str] | None:
-    """Return (source, language, vtt_url) preferring manual English captions."""
+def pick_caption(info: dict, languages: list[str]) -> tuple[str, str, str] | None:
+    """Return (source, language, vtt_url). Languages are tried in order; within a language manual beats auto."""
     video_language = (info.get("language") or "").lower()
     manual = info.get("subtitles") or {}
     auto = info.get("automatic_captions") or {}
 
-    manual_langs = [l for l in manual if l == "en" or l.startswith("en-")]
-    # Plain "en" in automatic captions can be a machine translation; "en-orig" is the original speech.
-    auto_langs = [l for l in ("en-orig", "en") if l in auto]
-    if "en-orig" not in auto and video_language and not video_language.startswith("en"):
-        auto_langs = []
-
-    for source, pool, languages in (("manual", manual, manual_langs), ("auto", auto, auto_langs)):
-        for language in languages:
-            for fmt in pool[language]:
-                if fmt.get("ext") == "vtt" and fmt.get("url"):
-                    return source, language, fmt["url"]
+    for language in languages:
+        manual_langs = [l for l in manual if l == language or l.startswith(language + "-")]
+        # Automatic captions exist in many languages for every video, and "<code>-orig" does NOT mean
+        # "original speech" (a Japanese video also lists "en-orig", a machine translation). So accept
+        # automatic captions only when the video's own language matches; unknown language is accepted.
+        auto_langs = [l for l in (f"{language}-orig", language) if l in auto]
+        if video_language and not video_language.startswith(language):
+            auto_langs = []
+        for source, pool, candidates in (("manual", manual, manual_langs), ("auto", auto, auto_langs)):
+            for candidate in candidates:
+                for fmt in pool[candidate]:
+                    if fmt.get("ext") == "vtt" and fmt.get("url"):
+                        return source, candidate, fmt["url"]
     return None
 
 
-def fetch_transcript_via_api(video_id: str) -> tuple[str, str]:
+def _api_languages(languages: list[str]) -> list[str]:
+    expanded: list[str] = []
+    for language in languages:
+        expanded.append(language)
+        if language == "en":
+            expanded += ["en-US", "en-GB"]
+    return expanded
+
+
+def fetch_transcript_via_api(video_id: str, languages: list[str]) -> tuple[str, str]:
     try:
-        fetched = YouTubeTranscriptApi().fetch(video_id, languages=["en", "en-US", "en-GB"])
+        fetched = YouTubeTranscriptApi().fetch(video_id, languages=_api_languages(languages))
     except (NoTranscriptFound, TranscriptsDisabled) as exc:
-        raise PermanentError("no English captions (transcript-api)") from exc
+        raise PermanentError(f"no captions in {languages} (transcript-api)") from exc
     text = clean_plain(" ".join(snippet.text for snippet in fetched))
     return text, "transcript_api_auto" if fetched.is_generated else "transcript_api_manual"
 
 
-def get_transcript(ydl: YoutubeDL, info: dict, settings: Settings) -> tuple[str, str, str | None]:
+def get_transcript(ydl: YoutubeDL, info: dict, settings: Settings,
+                   languages: list[str]) -> tuple[str, str, str | None]:
     """Return (text, caption_source, caption_language). yt-dlp first, transcript-api as fallback."""
-    caption = pick_caption(info)
+    caption = pick_caption(info, languages)
     if caption:
         source, language, url = caption
         try:
@@ -262,7 +276,7 @@ def get_transcript(ydl: YoutubeDL, info: dict, settings: Settings) -> tuple[str,
         except Exception as exc:  # noqa: BLE001
             log.warning("[%s] yt-dlp caption download failed (%s), trying transcript-api", info["id"], exc)
 
-    text, source = with_retries(lambda: fetch_transcript_via_api(info["id"]),
+    text, source = with_retries(lambda: fetch_transcript_via_api(info["id"], languages),
                                 settings, f"transcript-api {info['id']}")
     if not text:
         raise PermanentError("empty transcript")
@@ -298,7 +312,7 @@ def process_video(ydl: YoutubeDL, entry: dict, channel: ChannelConfig, settings:
     if upload_date < channel.min_date:
         raise SkipVideo(f"older than {channel.min_date}")
 
-    text, caption_source, caption_language = get_transcript(ydl, info, settings)
+    text, caption_source, caption_language = get_transcript(ydl, info, settings, channel.languages)
 
     record = {
         "video_id": video_id,
@@ -313,6 +327,7 @@ def process_video(ydl: YoutubeDL, entry: dict, channel: ChannelConfig, settings:
         "transcript_text": text,
         "caption_source": caption_source,
         "caption_language": caption_language,
+        "language": info.get("language"),
     }
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / f"{video_id}.json"

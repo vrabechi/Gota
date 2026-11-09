@@ -49,6 +49,9 @@ All sources are converted to one document format (`src/documents.py`: source, so
 
 Hacker News notes: the revenue-oriented queries return very few posts (about 64 in 24 months), while `show_hn` returns thousands of mostly hobby projects. Use `--query` to download only the queries you want. Linked pages are not fetched; a document is the post text plus top-level comments.
 
+### Other languages
+Set `languages: [ja]` (or `[fr]`, `[es, en]`...) on a channel in `config/channels.yaml`. Captions are taken in that order; automatic captions are used only when the video's own language matches (YouTube lists machine translations for every video, so they are ignored). Layer 1 and extraction read non-English text directly and answer in English. The title regex rules in `config/filters.yaml` are English-only, so they do nothing for other languages.
+
 ## Behaviour
 
 - **Resumable and cached.** Downloads skip existing files and permanent failures (`data/failures.jsonl`). Layer 1 results are cached in `data/triage/<video_id>.json`; changing thresholds never re-calls the API, only bumping `layer1.prompt_version` or the model does. Batches are resumed from `data/batches/`.

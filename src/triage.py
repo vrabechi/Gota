@@ -87,7 +87,12 @@ def build_user_text(doc: dict, cfg: dict) -> str:
     if doc["source"] == "youtube":
         description = (meta.get("description") or "").strip()[: cfg["description_chars"]] or "(not available)"
         minutes = round((meta.get("duration") or 0) / 60)
-        return (f"Title: {doc.get('title')}\n"
+        language = (meta.get("language") or meta.get("caption_language") or "en").lower()
+        # English documents keep the exact old text (cache stays valid); others get a language hint.
+        language_note = "" if language.startswith("en") else (
+            f"Language: {language} (the text below is not in English; judge it as is and write the reason in English)\n")
+        return (language_note +
+                f"Title: {doc.get('title')}\n"
                 f"Channel: {doc.get('author')}\n"
                 f"Duration: {minutes} min | Views: {engagement.get('views')}\n\n"
                 f"Description (start):\n{description}\n\n"

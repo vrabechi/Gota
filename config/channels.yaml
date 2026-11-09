@@ -14,6 +14,9 @@ channels:
     max_videos: 50
     # min_date: 2024-11-08       # optional, overrides default_max_age_months
     # title_keywords: []         # optional, keep only titles containing any of these
+    # languages: [en]            # optional caption languages in order of preference (default [en]).
+    #                            # e.g. [ja], [fr], [es, en]. Automatic captions are accepted only when the
+    #                            # video's own language matches (never machine translations).
 
   - name: my-first-million
     handle: "@MyFirstMillionPod"

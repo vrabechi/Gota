@@ -39,6 +39,8 @@ def from_youtube(record: dict, channel_slug: str) -> dict:
             "description": record.get("description"),
             "duration": record.get("duration"),
             "caption_source": record.get("caption_source"),
+            "caption_language": record.get("caption_language"),
+            "language": record.get("language"),
         },
     }
 
