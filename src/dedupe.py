@@ -203,8 +203,9 @@ def run(report_only: bool = False) -> int:
     auto, review = find_pairs(records, vectors, cfg)
     verdicts = (llm.read_json(ADJ_FILE) or {}).get("pairs", {})
     by_rid = {r["rid"]: i for i, r in enumerate(records)}
+    merge_verdicts = {"same", "unsure"} if cfg["adjudication"].get("merge_unsure") else {"same"}
     judged_same = [(by_rid[k.split("|")[0]], by_rid[k.split("|")[1]]) for k, v in verdicts.items()
-                   if v["verdict"] == "same" and all(x in by_rid for x in k.split("|"))]
+                   if v["verdict"] in merge_verdicts and all(x in by_rid for x in k.split("|"))]
     review = [p for p in review
               if verdicts.get(_pair_key(records[p[0]], records[p[1]]), {}).get("verdict", "unsure") == "unsure"]
     roots = cluster(len(records), auto + judged_same)

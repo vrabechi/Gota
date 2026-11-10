@@ -19,3 +19,4 @@ name_stopwords: [inc, llc, ltd, co, corp, company, the, app, platform, business,
 
 adjudication:                 # `dedupe --adjudicate`: a cheap model decides the ambiguous pairs
   model: claude-haiku-5-5
+  merge_unsure: true          # also merge pairs the model could not settle (decided by the user on 2026-11-10)
