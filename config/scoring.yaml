@@ -1,0 +1,82 @@
+# Ranking of deduped businesses (src/rank.py). Everything here is adjustable; no API calls.
+# Missing data is never an exclusion reason: unknown fields get the "unknown" credit, not zero.
+
+# ---- Stage 1: exclusions (a business is dropped from the ranking, and the reason is counted)
+exclude:
+  physical_operations: [own, outsourced]
+  stages: [shut_down]            # listed separately in the report as failures / risks
+  prominence: [mentioned_in_passing]
+  giant:                         # only when the figure is VERIFIED (quote found) and in USD
+    revenue_usd_per_year: 20000000
+    exit_price_usd: 50000000
+
+# ---- Stage 2: score 0-100 = sum of the weights below x credit (0..1), minus penalties
+weights:
+  us_dependency: 25              # fewer US-specific dependencies = easier to bring to Brazil
+  traction: 25                   # verified revenue/profit/customers, and scale a solo operator can reach
+  operable_solo: 20              # automation and low support load
+  stage: 10
+  entry_barrier: 10              # low starting capital, few barriers
+  ceiling: 10                    # category and recurring monetisation
+
+# Independent evidence (number of distinct channels) is deliberately NOT scored: many channels talking about the
+# same business suggests it is already well known. It is shown in the report for information only.
+
+penalties:                       # points subtracted
+  sells_courses_about_it: 10     # revenue comes from teaching others, not from the model itself
+  single_platform_dependency: 5
+  regulated_industry: 5
+  language_dependent: 3
+
+us_dependency_credit:            # by number of us_specific_dependencies listed
+  0: 0.8                         # none listed (the text may simply not say), so not full credit
+  1: 0.4
+  2: 0.0                         # 2 or more
+
+traction:
+  unknown_credit: 0.4            # no verified revenue/profit/customers
+  verified_unusable_credit: 0.6  # verified, but not in USD or no clear period
+  verified_in_band_credit: 1.0
+  band_usd_per_month: [1000, 100000]
+  verified_out_of_band_credit: 0.6
+
+operable_solo:
+  automation: {high: 1.0, medium: 0.6, low: 0.2, unknown: 0.5}
+  support_load: {low: 1.0, medium: 0.5, high: 0.0, unknown: 0.5}
+
+stage_credit:
+  growing: 1.0
+  mature: 0.8
+  early_revenue: 0.7
+  exited: 0.5
+  unknown: 0.4
+  pre_revenue: 0.3
+  idea: 0.0
+
+entry_barrier:
+  capital_usd_credit: [[5000, 1.0], [50000, 0.5], [null, 0.1]]   # up to X USD -> credit; null = above the last X
+  unknown_capital_credit: 0.5
+  barriers_listed_max: 4         # 0 listed = full credit, this many or more = 0
+
+ceiling:
+  category_credit:
+    software_saas: 1.0
+    marketplace_platform: 1.0
+    mobile_app: 0.8
+    content_media_seo: 0.7
+    newsletter: 0.6
+    community_membership: 0.6
+    productized_service: 0.6
+    info_product_course: 0.5
+    creator_business: 0.4
+    agency_service: 0.4
+    small_business_acquisition: 0.4
+    dropshipping_pod: 0.3
+    local_service_business: 0.2
+    ecommerce_physical: 0.2
+    other: 0.4
+  recurring_bonus: 0.2           # subscription or transaction commission among the monetisation models
+  recurring_models: [subscription, transaction_commission]
+
+report:
+  top_n: 50

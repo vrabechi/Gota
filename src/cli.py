@@ -24,6 +24,7 @@ import filters
 import hackernews
 import llm
 import qiita
+import rank
 import triage
 import wordpress
 import yaml
@@ -192,6 +193,9 @@ def main() -> int:
     pu.add_argument("--adjudicate", action="store_true", help="paid Haiku pass on the ambiguous pairs (estimate first)")
     pu.add_argument("--yes", action="store_true", help="with --adjudicate: run the paid calls")
     pu.set_defaults(func=lambda a: dedupe.adjudicate(a.yes) if a.adjudicate else dedupe.run(a.report_only))
+
+    pr = sub.add_parser("rank", help="exclude and score the deduped businesses (config/scoring.yaml, free)")
+    pr.set_defaults(func=lambda a: rank.run())
 
     pf = sub.add_parser("funnel", help="report entries/exits and cost per layer")
     pf.add_argument("--details", action="store_true", help="list every triaged video")
