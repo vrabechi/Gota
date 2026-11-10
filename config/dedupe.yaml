@@ -16,3 +16,6 @@ review:                       # ambiguous pairs, written to data/dedupe/review.c
 
 # Words stripped from names before comparing (legal forms and generic filler).
 name_stopwords: [inc, llc, ltd, co, corp, company, the, app, platform, business, brand, group]
+
+adjudication:                 # `dedupe --adjudicate`: a cheap model decides the ambiguous pairs
+  model: claude-haiku-5-5

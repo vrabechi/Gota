@@ -189,7 +189,9 @@ def main() -> int:
 
     pu = sub.add_parser("dedupe", help="merge the same business found in several documents (free, local)")
     pu.add_argument("--report-only", action="store_true", help="print counts, write nothing")
-    pu.set_defaults(func=lambda a: dedupe.run(a.report_only))
+    pu.add_argument("--adjudicate", action="store_true", help="paid Haiku pass on the ambiguous pairs (estimate first)")
+    pu.add_argument("--yes", action="store_true", help="with --adjudicate: run the paid calls")
+    pu.set_defaults(func=lambda a: dedupe.adjudicate(a.yes) if a.adjudicate else dedupe.run(a.report_only))
 
     pf = sub.add_parser("funnel", help="report entries/exits and cost per layer")
     pf.add_argument("--details", action="store_true", help="list every triaged video")

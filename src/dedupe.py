@@ -136,6 +136,63 @@ def canonical(members: list[dict]) -> dict:
                                        bool(r["name"]), len(r["description"])))
 
 
+ADJ_FILE = OUT_DIR / "adjudication.json"
+ADJ_SCHEMA = {
+    "type": "object",
+    "properties": {"verdict": {"type": "string", "enum": ["same", "different", "unsure"]},
+                   "reason": {"type": "string"}},
+    "required": ["verdict", "reason"], "additionalProperties": False,
+}
+ADJ_SYSTEM = """You decide whether two records extracted from different documents describe the SAME real-world business, product or company. Answer "same" only if they are clearly one entity (name variants, different spellings, a domain vs its brand, a person's company vs its own name). Answer "different" if they are separate companies or separate instances of a generic model (two operators of similar agencies, two stores of the same kind), or one is a parent/part of the other. "unsure" when the text does not settle it. Judge from the text only. reason: one short sentence, in English."""
+
+
+def _pair_key(a: dict, b: dict) -> str:
+    return "|".join(sorted([a["rid"], b["rid"]]))
+
+
+def adjudicate(yes: bool) -> int:
+    """Ask Haiku about each ambiguous pair. Cached per pair; 'same' verdicts are applied by the next `dedupe` run."""
+    cfg = load_cfg()
+    records = load_records(cfg)
+    auto, review = find_pairs(records, embed(records, cfg["embedding_model"]), cfg)
+    roots = cluster(len(records), auto)
+    cache = (llm.read_json(ADJ_FILE) or {}).get("pairs", {})
+    todo = [(records[i], records[j]) for i, j, *_ in review
+            if roots[i] != roots[j] and _pair_key(records[i], records[j]) not in cache]
+    model = cfg["adjudication"]["model"]
+    est_in, est_out = len(todo) * 450, len(todo) * 60
+    cost = llm.cost_usd(model, est_in, est_out, batch=False)
+    print(f"{len(todo)} pairs to judge ({len(cache)} cached). Estimate ({model}, sync): ~{est_in:,} input + "
+          f"~{est_out:,} output tokens, cost "
+          + (f"US$ {cost:.3f}" if cost is not None else "unavailable (pricing not verified)") + " [rough token estimate]")
+    if not todo:
+        return 0
+    if not yes:
+        print("Estimate only. Re-run with --yes to execute the paid calls.")
+        return 0
+    llm.require_verified_pricing(model, batch=False)
+    client = llm.get_client()
+    for a, b in todo:
+        def side(r: dict) -> str:
+            return "\n".join([f"name: {r['name']}", f"description: {r['description']}", f"document: {r['doc_title']}"])
+        params = {
+            "model": model, "max_tokens": 200, "system": ADJ_SYSTEM,
+            "messages": [{"role": "user", "content": "Record A\n" + side(a) + "\n\nRecord B\n" + side(b)}],
+            "output_config": {"effort": "low", "format": {"type": "json_schema", "schema": ADJ_SCHEMA}},
+            "thinking": {"type": "disabled"},
+        }
+        try:
+            result = json.loads(llm.message_text(client.messages.create(**params)))
+        except Exception as exc:  # noqa: BLE001 - keep going; the pair stays in review
+            print(f"  {_pair_key(a, b)}: {type(exc).__name__}")
+            continue
+        cache[_pair_key(a, b)] = {**result, "name_a": a["name"], "name_b": b["name"]}
+        llm.write_json(ADJ_FILE, {"model": model, "pairs": cache})
+    counts = {v: sum(1 for r in cache.values() if r["verdict"] == v) for v in ("same", "different", "unsure")}
+    print(f"Judged. Totals: {counts}. Run `dedupe` to apply the 'same' verdicts.")
+    return 0
+
+
 def run(report_only: bool = False) -> int:
     cfg = load_cfg()
     records = load_records(cfg)
@@ -144,7 +201,13 @@ def run(report_only: bool = False) -> int:
         return 1
     vectors = embed(records, cfg["embedding_model"])
     auto, review = find_pairs(records, vectors, cfg)
-    roots = cluster(len(records), auto)
+    verdicts = (llm.read_json(ADJ_FILE) or {}).get("pairs", {})
+    by_rid = {r["rid"]: i for i, r in enumerate(records)}
+    judged_same = [(by_rid[k.split("|")[0]], by_rid[k.split("|")[1]]) for k, v in verdicts.items()
+                   if v["verdict"] == "same" and all(x in by_rid for x in k.split("|"))]
+    review = [p for p in review
+              if verdicts.get(_pair_key(records[p[0]], records[p[1]]), {}).get("verdict", "unsure") == "unsure"]
+    roots = cluster(len(records), auto + judged_same)
     groups: dict[int, list[dict]] = defaultdict(list)
     for record, root in zip(records, roots):
         groups[root].append(record)
@@ -166,7 +229,7 @@ def run(report_only: bool = False) -> int:
     review_rows.sort(key=lambda row: -row[2])
 
     print(f"{len(records)} records -> {len(clusters)} distinct businesses "
-          f"({len(auto)} auto-merged pairs); {len(review_rows)} pairs for manual review")
+          f"({len(auto)} auto + {len(judged_same)} model-judged merges); {len(review_rows)} pairs left for manual review")
     multi = [c for c in clusters if c["documents"] > 1]
     print(f"{len(multi)} businesses appear in 2+ documents; top: " +
           ", ".join(f"{c['name']} ({c['documents']})" for c in multi[:8]))
