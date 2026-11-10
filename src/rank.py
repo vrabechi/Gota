@@ -179,7 +179,12 @@ def run() -> int:
                            "parts": best["parts"], "penalties": best["penalties"], "rid": best["rid"],
                            "monthly_revenue_usd": monthly_usd(b, {"revenue"}),
                            "us_dependencies": b["operation"]["us_specific_dependencies"],
-                           "url": records[best["rid"]]["url"]})
+                           "url": records[best["rid"]]["url"], "doc_title": records[best["rid"]]["doc_title"],
+                           "figures": [{"kind": m["kind"], "value": m["value"], "currency": m["currency"],
+                                        "period": m["period"], "quote": m["supporting_quote"]}
+                                       for m in b["metrics"]
+                                       if m["kind"] in ("revenue", "profit", "customers", "initial_capital")
+                                       and m.get("value") is not None and m.get("quote_verified")][:5]})
         else:
             excluded[Counter(reasons).most_common(1)[0][0] if reasons else "no data"] += 1
             if any(r == "stage=shut_down" for r in reasons):
@@ -213,7 +218,13 @@ def write_report(ranked: list, excluded: Counter, failures: list, cfg: dict, tot
                   "- Parts: " + ", ".join(f"{k} {v}" for k, v in r["parts"].items()) +
                   (" | Penalties: " + ", ".join(f"{k} -{v}" for k, v in r["penalties"].items()) if r["penalties"] else ""),
                   f"- US dependencies: {'; '.join(r['us_dependencies']) or 'none listed'}",
-                  f"- Channels: {', '.join(r['channels'])}" + (f" | Source: {r['url']}" if r["url"] else ""), ""]
+                  f"- Channels: {', '.join(r['channels'])}",
+                  f"- Source: {r['doc_title']}" + (f" ({r['url']})" if r["url"] else "")]
+        for f in r["figures"]:
+            quote = " ".join((f["quote"] or "").split())
+            lines.append(f"- Figure: {f['kind']} {f['value']:,.0f} {f['currency'] or ''} {f['period']} "
+                         f"- quote: \"{quote}\"")
+        lines.append("")
     lines += ["## Excluded", ""] + [f"- {n} x {reason}" for reason, n in excluded.most_common()]
     lines += ["", f"## Shut down ({len(failures)}), kept as lessons", ""] + \
              [f"- {f['name']}" for f in failures[:50]]
