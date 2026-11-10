@@ -5,7 +5,7 @@
 # about Brazil is extracted here: that judgement belongs to the final validation step.
 
 model: claude-haiku-5-5
-prompt_version: 2             # bump to invalidate the extraction cache on purpose
+prompt_version: 3            # bump to invalidate the extraction cache on purpose
 effort: medium
 thinking: disabled            # "disabled" or "adaptive"
 max_tokens: 8000

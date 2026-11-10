@@ -42,10 +42,18 @@ def scaled_value(m: dict) -> float | None:
     return value * SCALE_FACTOR[hit.group(1)] if hit else None
 
 
+def is_usd(m: dict) -> bool:
+    """USD when the model says so, or when it left the currency empty but the quote itself has a dollar marker."""
+    import re
+    if m.get("currency"):
+        return m["currency"] == "USD"
+    return bool(re.search(r"\$|\busd\b|\bdollars?\b|\bbucks\b", (m.get("supporting_quote") or "").lower()))
+
+
 def verified_usd(business: dict, kinds: set[str]) -> list[dict]:
     out = []
     for m in business.get("metrics", []):
-        if m["kind"] in kinds and m.get("value") is not None and m.get("quote_verified")                 and m.get("unit") == "currency" and m.get("currency") == "USD":
+        if m["kind"] in kinds and m.get("value") is not None and m.get("quote_verified")                 and m.get("unit") == "currency" and is_usd(m):
             value = scaled_value(m)
             if value is not None:
                 out.append({**m, "value": value})
@@ -230,12 +238,13 @@ def write_report(ranked: list, excluded: Counter, failures: list, cfg: dict, tot
     lines = [f"# Ranking: top {len(top)} of {len(ranked)} ranked businesses ({total} after dedupe)", "",
              "Score 0-100 from `config/scoring.yaml`. Unknown data gets neutral credit, never zero. Revenue figures are "
              "claims backed by a quote found in the text, NOT verified by an independent source.", "",
-             "| # | Score | Business | Stage | Category | Revenue USD/mo | US deps | Channels | Docs |",
-             "|---|---|---|---|---|---|---|---|---|"]
+             "| # | Score | Business | What it is | Stage | Revenue USD/mo | Channels |",
+             "|---|---|---|---|---|---|---|"]
     for r in top:
         rev = f"{r['monthly_revenue_usd']:,.0f}" if r["monthly_revenue_usd"] else "-"
-        lines.append(f"| {r['rank']} | {r['score']} | {str(r['name'])[:60]} | {r['stage']} | {r['category']} | {rev} | "
-                     f"{len(r['us_dependencies'])} | {len(r['channels'])} | {r['documents']} |")
+        summary = " ".join((r["description"] or "").replace("|", "/").split())
+        lines.append(f"| {r['rank']} | {r['score']} | {str(r['name'])[:40]} | {summary[:160]} | {r['stage']} | {rev} | "
+                     f"{len(r['channels'])} |")
     lines += ["", "## Details", ""]
     for r in top:
         lines += [f"### {r['rank']}. {r['name']} ({r['score']})", r["description"], "",

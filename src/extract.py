@@ -108,11 +108,12 @@ BUSINESS_SCHEMA = {
                 "revenue_source": _enum(REVENUE_SOURCES),
                 "us_specific_dependencies": _STR_LIST,
                 "language_dependent": _nullable({"type": "boolean"}),
+                "relies_on_existing_audience": _nullable({"type": "boolean"}),
                 "entry_barriers": _STR_LIST,
             },
             "required": ["automation_level", "support_load", "skills_required", "physical_operations",
                          "regulated_industry", "revenue_source", "us_specific_dependencies",
-                         "language_dependent", "entry_barriers"],
+                         "language_dependent", "relies_on_existing_audience", "entry_barriers"],
             "additionalProperties": False},
         "competitors_mentioned": _STR_LIST,
         "risks_or_failures": _STR_LIST,
@@ -154,7 +155,10 @@ figure; if you cannot quote it, set value to null. Do not convert currencies.
 sales channels, no-code tools, AI APIs, ad networks...). single_platform_dependency is true only if the \
 text says the business depends on one platform it does not control.
 - operation: revenue_source is where the money comes from; "sells_courses_about_it" when the revenue \
-is mainly from teaching others how to do it. us_specific_dependencies lists things the text ties to the \
+is mainly from teaching others how to do it. relies_on_existing_audience: true if the text says the \
+business got its customers mainly through an audience, community, mailing list, follower base or sister \
+products that the founder already had; false if the text says it grew from no audience; null if the text \
+does not say. us_specific_dependencies lists things the text ties to the \
 US (payment rails, insurance or health systems, tax or legal structure, US-only marketplaces or data). \
 entry_barriers lists capital, licences, skills or relationships the text says are needed.
 - prominence: "main_subject" if the document is mainly about this business, "secondary" if it gets a \
