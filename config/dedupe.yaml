@@ -1,0 +1,18 @@
+# Dedupe of extracted businesses (src/dedupe.py). Free: local embeddings (fastembed) + rapidfuzz, no API calls.
+extraction_model: claude-haiku-5-5   # which data/extractions/<model>/ folder to read
+embedding_model: BAAI/bge-small-en-v1.5
+
+# Records from the SAME document are never merged (they are distinct businesses of one video).
+candidate_cosine: 0.75        # pairs below this are never considered
+
+auto_merge:                   # all conditions of ONE rule must hold
+  - {min_name_score: 90, min_cosine: 0.80}      # both named, very similar names, similar descriptions
+  - {exact_name: true, min_cosine: 0.70}        # identical normalised names
+  - {name_subset: true, min_cosine: 0.85}       # one name's words are all inside the other's ('Acquisition.com' / 'Acquisition.com portfolio')
+
+review:                       # ambiguous pairs, written to data/dedupe/review.csv, never merged by code
+  - {min_name_score: 75, min_cosine: 0.80}
+  - {min_cosine: 0.90}                          # includes records without a name
+
+# Words stripped from names before comparing (legal forms and generic filler).
+name_stopwords: [inc, llc, ltd, co, corp, company, the, app, platform, business, brand, group]

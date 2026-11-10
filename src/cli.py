@@ -15,6 +15,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import dedupe
 import discover
 import documents
 import download
@@ -185,6 +186,10 @@ def main() -> int:
     pd.add_argument("--yes", action="store_true", help="actually run the paid screening after seeing the estimate")
     pd.add_argument("--cookies-from-browser", metavar="BROWSER")
     pd.set_defaults(func=lambda a: discover.run(a.stage, a.query, a.limit, a.sync, a.yes, a.cookies_from_browser))
+
+    pu = sub.add_parser("dedupe", help="merge the same business found in several documents (free, local)")
+    pu.add_argument("--report-only", action="store_true", help="print counts, write nothing")
+    pu.set_defaults(func=lambda a: dedupe.run(a.report_only))
 
     pf = sub.add_parser("funnel", help="report entries/exits and cost per layer")
     pf.add_argument("--details", action="store_true", help="list every triaged video")
