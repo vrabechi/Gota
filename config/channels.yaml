@@ -47,6 +47,32 @@ channels:
   - name: niche-pursuits
     handle: "@niche-pursuits"     # mixes SEO/software cases with unrelated Amazon-returns content
 
+  # Added 2026-11-09: non-English channels found by per-country search (quality NOT yet checked;
+  # Layer 1 decides). Title rules are English-only, so these titles pass Layer 0 with score 0.
+  - name: kojin-product-jp
+    handle: "@kojin-product"      # Japan: solo developer, product sold after reaching recurring revenue
+    languages: [ja]
+
+  - name: app-radar-jp
+    handle: "@app-radar"          # Japan: app revenue case studies (often overseas cases)
+    languages: [ja]
+
+  - name: bubecode-jp
+    handle: "@bubecode"           # Japan: indie development / monetization, more generic
+    languages: [ja]
+
+  - name: compuestos-mx
+    handle: "@compuestospodcast"  # Spanish: business interviews
+    languages: [es, en]
+
+  - name: actitud-millonaria-mx
+    handle: "@soyjosuepena"       # Spanish: many guests are US founders; large catalogue
+    languages: [es, en]
+
+  - name: business-en-ligne-fr
+    handle: "@businessenligne-maxencerig2613"   # French: online business case studies
+    languages: [fr]
+
   # Indie Hackers: "@IndieHackers" resolves to a channel whose latest upload is unrelated
   # (a Quran recitation), so it is NOT the official channel. The site's terms forbid scraping, so no
   # YouTube channel is configured. Add one here only if an official channel is confirmed.

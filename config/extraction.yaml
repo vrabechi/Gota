@@ -1,0 +1,29 @@
+# Layer 2: full extraction with Sonnet (src/extract.py). Everything here is read at run time.
+#
+# Policy (agreed 2026-11-09): extract every business with an identifiable model. Missing or unverified
+# numbers NEVER exclude a business; verified numbers count in its favour later (scoring.yaml). Nothing
+# about Brazil is extracted here: that judgement belongs to the final validation step.
+
+model: claude-sonnet-5-5
+prompt_version: 1             # bump to invalidate the extraction cache on purpose
+effort: medium
+thinking: disabled            # "disabled" or "adaptive"
+max_tokens: 8000
+est_output_tokens: 1500       # per document, used only for cost estimates
+estimate_sample_size: 20      # requests measured exactly with count_tokens; the rest extrapolated
+
+input:
+  max_chars: 150000           # longer texts are truncated (flagged in the result); ~40k tokens
+  description_chars: 1500     # YouTube description (show notes often name the companies)
+  max_businesses: 8           # per document: the most detailed ones
+
+# Quote verification (code, not the model): a metric keeps its value only if its supporting_quote
+# is found in the source text. Texts are normalised (case, punctuation, whitespace) first.
+verification:
+  min_match_score: 90         # rapidfuzz partial_ratio 0-100; exact normalised substring = 100
+
+# Which documents go to Layer 2. `passed` = passed Layer 1 (config/filters.yaml). `below` = triaged but under
+# the cutoff, only for the recall test (does Layer 1 discard good material?).
+selection:
+  recall_below_min_score: 4   # `--pool below` takes documents with score in [this, layer1.min_relevance_score)
+  sample_seed: 0

@@ -15,12 +15,16 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import discover
 import documents
 import download
+import extract
 import filters
 import hackernews
 import llm
+import qiita
 import triage
+import wordpress
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -48,10 +52,20 @@ def cmd_collect(args: argparse.Namespace) -> int:
     if args.source not in sources_cfg:
         print(f"Unknown source {args.source!r}. Configured: {sorted(sources_cfg)}", file=sys.stderr)
         return 2
-    result = hackernews.collect(sources_cfg[args.source], args.limit, args.dry_run, args.query)
+    collector = {"hackernews": hackernews.collect, "blog": wordpress.collect,
+                 "qiita": qiita.collect}.get(args.source)
+    if collector is None:
+        print(f"No collector for {args.source!r}.", file=sys.stderr)
+        return 2
+    result = collector(sources_cfg[args.source], args.limit, args.dry_run, args.query)
     if args.dry_run:
         for entry in result["candidates"][:args.show]:
-            print(f"  {entry['score']:>5} pts {entry['num_comments']:>4} comments  {entry['id']}  {entry['title']}")
+            if args.source == "hackernews":
+                print(f"  {entry['score']:>5} pts {entry['num_comments']:>4} comments  {entry['id']}  {entry['title']}")
+            elif args.source == "qiita":
+                print(f"  {entry['stocks']:>4} stocks {entry['upload_date']}  {entry['title']}")
+            else:
+                print(f"  {entry.get('upload_date')}  {entry.get('site')}  {entry['title']}")
         print(f"{len(result['candidates'])} candidates would be downloaded.")
     else:
         print(f"collect {args.source}: downloaded={result['downloaded']} "
@@ -133,8 +147,9 @@ def main() -> int:
     p0.set_defaults(func=cmd_layer0)
 
     pc = sub.add_parser("collect", help="download documents from a non-YouTube source (see config/sources.yaml)")
-    pc.add_argument("--source", required=True, help="hackernews")
-    pc.add_argument("--query", action="append", help="run only this named query from sources.yaml (repeatable)")
+    pc.add_argument("--source", required=True, help="hackernews | blog | qiita")
+    pc.add_argument("--query", action="append",
+                    help="run only this named query (hackernews) or site (blog) from sources.yaml (repeatable)")
     pc.add_argument("--limit", type=int, help="keep only the N highest-engagement candidates")
     pc.add_argument("--dry-run", action="store_true", help="search + Layer 0 only, download nothing")
     pc.add_argument("--show", type=int, default=15, help="with --dry-run, how many candidates to print")
@@ -147,6 +162,27 @@ def main() -> int:
     p1.add_argument("--sync", action="store_true", help="plain API calls instead of Batch (no discount, instant)")
     p1.add_argument("--yes", action="store_true", help="actually run the paid calls after seeing the estimate")
     p1.set_defaults(func=cmd_triage)
+
+    px = sub.add_parser("extract", help="Layer 2: Sonnet extraction of businesses (paid; estimate first)")
+    px.add_argument("--pool", choices=["passed", "below"], default="passed",
+                    help="passed = passed Layer 1 (default); below = just under the cutoff, for the recall test")
+    px.add_argument("--source", action="append", help="youtube, hackernews, blog, qiita (repeatable)")
+    px.add_argument("--channel", action="append", help="YouTube channel slug (repeatable)")
+    px.add_argument("--limit", type=int, help="first N pending documents")
+    px.add_argument("--sample", type=int, help="random sample of N pending documents (seeded, reproducible)")
+    px.add_argument("--sync", action="store_true", help="plain API calls instead of Batch")
+    px.add_argument("--yes", action="store_true", help="actually run the paid calls after seeing the estimate")
+    px.set_defaults(func=lambda a: extract.run(a.pool, a.source, a.channel, a.limit, a.sample, a.sync, a.yes))
+
+    pd = sub.add_parser("discover", help="find videos outside the configured channels (config/queries.yaml)")
+    pd.add_argument("--stage", choices=["search", "screen", "download", "report", "all"], default="search",
+                    help="search = free (default); screen = paid Haiku pass; download = captions of survivors")
+    pd.add_argument("--query", action="append", help="run only this named query (repeatable)")
+    pd.add_argument("--limit", type=int, help="max videos to screen/download in this run")
+    pd.add_argument("--sync", action="store_true", help="plain API calls instead of Batch for the screening")
+    pd.add_argument("--yes", action="store_true", help="actually run the paid screening after seeing the estimate")
+    pd.add_argument("--cookies-from-browser", metavar="BROWSER")
+    pd.set_defaults(func=lambda a: discover.run(a.stage, a.query, a.limit, a.sync, a.yes, a.cookies_from_browser))
 
     pf = sub.add_parser("funnel", help="report entries/exits and cost per layer")
     pf.add_argument("--details", action="store_true", help="list every triaged video")

@@ -45,6 +45,15 @@ SOURCE_PROMPT_FIELDS = {
                 "comments. Link posts have no text beyond the title: linked pages are not available, "
                 "so judge from the title and the comments. A comment's author may be the founder",
     },
+    "blog": {
+        "items": "blog articles", "item": "article",
+        "seen": "title, site, publication date and the first characters of the article text",
+    },
+    "qiita": {
+        "items": "Qiita articles (a Japanese developer blogging platform)", "item": "article",
+        "seen": "title, author, publication date, likes, bookmarks (stocks) and the first characters of the "
+                "article text, which is in Japanese and may contain code",
+    },
 }
 
 SYSTEM_PROMPTS = {source: _PROMPT_TEMPLATE.format(**fields) for source, fields in SOURCE_PROMPT_FIELDS.items()}
@@ -90,6 +99,16 @@ def build_user_text(doc: dict, cfg: dict) -> str:
                 f"Duration: {minutes} min | Views: {engagement.get('views')}\n\n"
                 f"Description (start):\n{description}\n\n"
                 f"Transcript (first {cfg['transcript_chars']} characters):\n{body}")
+    if doc["source"] == "blog":
+        return (f"Title: {doc.get('title')}\n"
+                f"Site: {doc.get('author')} | Date: {doc.get('date')}\n\n"
+                f"Text (first {cfg['transcript_chars']} characters):\n{body or '(no text)'}")
+    if doc["source"] == "qiita":
+        return ("Language: ja (the text below is Japanese; judge it as is and write the reason in English)\n"
+                f"Title: {doc.get('title')}\n"
+                f"Author: {doc.get('author')} | Date: {doc.get('date')} | Likes: {engagement.get('likes')} | "
+                f"Stocks: {engagement.get('stocks')}\n\n"
+                f"Text (first {cfg['transcript_chars']} characters):\n{body or '(no text)'}")
     return (f"Title: {doc.get('title')}\n"
             f"Source: {doc['source']} | Author: {doc.get('author')} | Points: {engagement.get('score')} | "
             f"Comments: {engagement.get('comments')}\n\n"

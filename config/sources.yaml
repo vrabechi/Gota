@@ -4,6 +4,30 @@
 #   hackernews: the official API README (github.com/HackerNews/API) states no terms and "no rate limit".
 #               The Algolia search page did not load, so its terms are NOT verified. Re-check before scaling up.
 
+#   blog:       Trends.vc and Niche Pursuits terms read by the user on 2026-11-09 (they allow this use).
+#               robots.txt of both allows everything; Trends.vc asks for Crawl-delay: 10 (set below).
+
+# WordPress sites read through the public REST API (src/wordpress.py). Add a site = add a block.
+blog:
+  max_age_months: 24
+  sites:
+    - {name: trends-vc,      base_url: "https://trends.vc",              crawl_delay_seconds: 10, display_name: "Trends.vc"}
+    - {name: niche-pursuits, base_url: "https://www.nichepursuits.com",  crawl_delay_seconds: 1,  display_name: "Niche Pursuits"}
+
+#   qiita:      official API v2 with the user's personal read-only token (QIITA_TOKEN in .env). The terms do not
+#               mention automated access or analysis; authors keep copyright, so this is private research use only.
+
+# Qiita (Japan): articles by tag. Request limits: 1000/hour with token, 100 articles per request.
+qiita:
+  max_age_months: 24
+  sleep_seconds: 0.5
+  max_chars: 60000
+  queries:                      # min_stocks = bookmarks, the engagement filter (the tag has ~6,800 posts in 24 months)
+    - {name: indie_dev,       tag: "個人開発",          min_stocks: 5}
+    - {name: monetization,    tag: "収益化",            min_stocks: 1}
+    - {name: startup,         tag: "スタートアップ",    min_stocks: 5}
+    - {name: side_business,   tag: "副業",              min_stocks: 3}
+
 hackernews:
   max_age_months: 24
   window_days: 30          # search is split in windows because one query returns at most 1000 hits

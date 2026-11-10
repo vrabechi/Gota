@@ -55,11 +55,27 @@ layer0:
       - {pattern: 'what are you working on|what are you reading', weight: 1}
       - {pattern: '\bpoll\b',                                      weight: 3}
 
+  # Blog posts (WordPress): no duration, no engagement, no title rules (the posts are filtered by Layer 1).
+  blog:
+    min_duration_seconds: null
+    max_duration_seconds: null
+    views_percentile: 0
+    title_rules: false
+
+  # Qiita: engagement is filtered per query by `min_stocks` in config/sources.yaml. Title rules are English-only.
+  qiita:
+    min_duration_seconds: null
+    max_duration_seconds: null
+    views_percentile: 0
+    title_rules: false
+
 layer1:
   model: claude-haiku-5-5
   prompt_versions:                # bump a source's version to invalidate ITS triage cache on purpose
     youtube: 2        # 2: speaker_role removed from the prompt and schema
     hackernews: 2
+    blog: 1
+    qiita: 1
   description_chars: 1000
   transcript_chars: 1500
   effort: low

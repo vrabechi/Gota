@@ -32,6 +32,17 @@ uv run python src/download.py [--channel NAME] [--max-videos N] [--dry-run] [--r
 # Layer 1 triage. Without --yes it only prints the estimate.
 uv run python src/cli.py triage [--channel NAME] [--limit N] [--sync] [--yes]
 
+# Layer 2 extraction (Sonnet) of the documents that passed Layer 1. Without --yes it only prints the estimate.
+#   --sample N = random seeded sample; --pool below = triaged just under the cutoff (recall test)
+# Output: data/extractions/<doc>.json. Config and field list: config/extraction.yaml, src/extract.py
+uv run python src/cli.py extract [--pool passed|below] [--source S] [--channel C] [--limit N] [--sample N] [--sync] [--yes]
+
+# Discover videos from channels not in channels.yaml (queries in config/queries.yaml).
+#   --stage search (default, free) | screen (paid Haiku pass on search metadata; estimate unless --yes)
+#   | download (captions of the survivors into data/transcripts/discover/) | report | all
+# Then triage them with: triage --channel discover. Channel candidates: data/channel_candidates.csv
+uv run python src/cli.py discover [--stage S] [--query NAME] [--limit N] [--sync] [--yes]
+
 # Entries/exits and cost per layer; --details lists each triaged video
 uv run python src/cli.py funnel [--details]
 ```
@@ -44,6 +55,8 @@ All sources are converted to one document format (`src/documents.py`: source, so
 |---|---|---|---|
 | YouTube | `src/download.py` | `config/channels.yaml` | working (`yt-dlp`, unofficial) |
 | Hacker News | `uv run python src/cli.py collect --source hackernews [--query NAME] [--limit N] [--dry-run]` | `config/sources.yaml` | working; terms of use of the Algolia API not verified |
+| Qiita (Japan) | `uv run python src/cli.py collect --source qiita [--query NAME] [--limit N] [--dry-run]` | `config/sources.yaml` (`qiita.queries`), token `QIITA_TOKEN` in `.env` | working; official API v2, read-only token, filtered by tag and minimum bookmarks (stocks) |
+| WordPress blogs (Trends.vc, Niche Pursuits) | `uv run python src/cli.py collect --source blog [--query SITE] [--limit N] [--dry-run]` | `config/sources.yaml` (`blog.sites`) | working; public REST API `/wp-json/wp/v2/posts`, full history inside the 24-month window, respects each site's crawl delay; terms read by the user on 2026-11-09 |
 | Product Hunt | - | - | not built: API forbids commercial use, token needed, scraping forbidden by its ToS |
 | Reddit | - | - | not built: needs Reddit approval (Responsible Builder Policy) |
 
