@@ -180,6 +180,7 @@ def run() -> int:
                            "monthly_revenue_usd": monthly_usd(b, {"revenue"}),
                            "us_dependencies": b["operation"]["us_specific_dependencies"],
                            "url": records[best["rid"]]["url"], "doc_title": records[best["rid"]]["doc_title"],
+                           "all_sources": [f"{records[m]['doc_title']} | {records[m]['url']}" for m in cl["members"]],
                            "figures": [{"kind": m["kind"], "value": m["value"], "currency": m["currency"],
                                         "period": m["period"], "quote": m["supporting_quote"]}
                                        for m in b["metrics"]
@@ -194,11 +195,34 @@ def run() -> int:
         row["rank"] = i
     llm.write_json(OUT_DIR / "ranking.json", {"ranked": ranked, "excluded": dict(excluded), "failures": failures})
     write_report(ranked, excluded, failures, cfg, len(data["clusters"]))
+    write_csv(ranked)
     print(f"{len(data['clusters'])} businesses -> {len(ranked)} ranked, {sum(excluded.values())} excluded")
     for reason, n in excluded.most_common():
         print(f"  excluded {n:>4}  {reason}")
     print(f"Wrote {OUT_DIR / 'ranking.json'} and {OUT_DIR / 'report.md'}")
     return 0
+
+
+def write_csv(ranked: list) -> None:
+    """All ranked businesses in one sheet (opens in Excel; UTF-8 with BOM)."""
+    import csv
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    columns = ["rank", "score", "name", "description", "category", "stage", "monthly_revenue_usd",
+               "us_dependencies", "channels", "documents", "mentions", "source_title", "source_url",
+               "all_sources", "score_parts", "penalties", "revenue_quotes"]
+    with open(OUT_DIR / "ranking.csv", "w", newline="", encoding="utf-8-sig") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(columns)
+        for r in ranked:
+            money = [f"{f['kind']} {f['value']:,.0f} {f['currency'] or ''} {f['period']}: \"{' '.join((f['quote'] or '').split())}\""
+                     for f in r["figures"] if f["kind"] in ("revenue", "profit")]
+            writer.writerow([
+                r["rank"], r["score"], r["name"], r["description"], r["category"], r["stage"],
+                round(r["monthly_revenue_usd"]) if r["monthly_revenue_usd"] else "",
+                "; ".join(r["us_dependencies"]), ", ".join(r["channels"]), r["documents"], r["mentions"],
+                r["doc_title"], r["url"], " || ".join(r["all_sources"]),
+                ", ".join(f"{k} {v}" for k, v in r["parts"].items()),
+                ", ".join(f"{k} -{v}" for k, v in r["penalties"].items()), " || ".join(money)])
 
 
 def write_report(ranked: list, excluded: Counter, failures: list, cfg: dict, total: int) -> None:
