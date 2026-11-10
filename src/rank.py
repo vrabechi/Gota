@@ -25,10 +25,31 @@ def load_cfg() -> dict:
     return yaml.safe_load(CONFIG_FILE.read_text(encoding="utf-8"))
 
 
+SCALE_WORDS = r"(million|millions|billion|mil|mm|thousand|k|m|b)"
+SCALE_FACTOR = {"million": 1e6, "millions": 1e6, "mm": 1e6, "m": 1e6, "billion": 1e9, "b": 1e9,
+                "thousand": 1e3, "k": 1e3, "mil": 1e3}
+
+
+def scaled_value(m: dict) -> float | None:
+    """The extractor sometimes reads '$60 million' as 60. Fix it from the quote, or return None when the quote has a
+    scale word the value does not reflect and the multiplier cannot be told (the figure is then ignored)."""
+    import re
+    value, quote = m["value"], (m.get("supporting_quote") or "").lower()
+    if value >= 1000 or not re.search(r"\b" + SCALE_WORDS + r"\b|\d\s?[mbk]\b", quote):
+        return value
+    number = re.escape(f"{value:g}")
+    hit = re.search(number + r"(?:\.\d+)?\s*" + SCALE_WORDS + r"\b", quote)
+    return value * SCALE_FACTOR[hit.group(1)] if hit else None
+
+
 def verified_usd(business: dict, kinds: set[str]) -> list[dict]:
-    return [m for m in business.get("metrics", [])
-            if m["kind"] in kinds and m.get("value") is not None and m.get("quote_verified")
-            and m.get("unit") == "currency" and m.get("currency") == "USD"]
+    out = []
+    for m in business.get("metrics", []):
+        if m["kind"] in kinds and m.get("value") is not None and m.get("quote_verified")                 and m.get("unit") == "currency" and m.get("currency") == "USD":
+            value = scaled_value(m)
+            if value is not None:
+                out.append({**m, "value": value})
+    return out
 
 
 def monthly_usd(business: dict, kinds: set[str]) -> float | None:
