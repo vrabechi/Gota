@@ -2,7 +2,7 @@
 
 Pipeline to find online business models that work in the US but are still underdeveloped in Brazil.
 
-Funnel: **Layer 0** (free metadata filters) -> download transcripts -> **Layer 1** (Haiku triage) -> **Layer 2** (full extraction, pending) -> ranking (pending).
+Funnel: **Layer 0** (free metadata filters) -> download transcripts -> **Layer 1** (Haiku triage) -> **Layer 2** (structured extraction, Haiku or Sonnet) -> ranking (pending).
 
 ## Setup
 
@@ -34,7 +34,7 @@ uv run python src/cli.py triage [--channel NAME] [--limit N] [--sync] [--yes]
 
 # Layer 2 extraction (Sonnet) of the documents that passed Layer 1. Without --yes it only prints the estimate.
 #   --sample N = random seeded sample; --pool below = triaged just under the cutoff (recall test)
-# Output: data/extractions/<doc>.json. Config and field list: config/extraction.yaml, src/extract.py
+# Output: data/extractions/<model>/<doc>.json (one folder per model, so models can be compared). Config and field list: config/extraction.yaml, src/extract.py
 uv run python src/cli.py extract [--pool passed|below] [--source S] [--channel C] [--limit N] [--sample N] [--sync] [--yes]
 
 # Discover videos from channels not in channels.yaml (queries in config/queries.yaml).

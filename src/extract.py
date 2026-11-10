@@ -41,13 +41,13 @@ MONETIZATION = ["subscription", "one_time_sale", "usage_based", "transaction_com
 CHANNELS = ["seo", "paid_ads", "social_organic", "marketplace_listing", "cold_outreach", "partnerships",
             "email_list", "community", "referral_word_of_mouth", "content_youtube", "app_store", "pr_press", "other"]
 LEVELS = ["low", "medium", "high", "unknown"]
+PHYSICAL_OPERATIONS = ["none", "outsourced", "own", "unknown"]
 REVENUE_SOURCES = ["customers", "sponsors_ads", "sells_courses_about_it", "investors", "mixed", "unknown"]
 METRIC_KINDS = ["revenue", "profit", "gross_margin", "costs", "ad_spend", "cac", "ltv", "churn",
                 "conversion_rate", "initial_capital", "price", "customers", "users", "traffic", "growth_rate",
                 "team_size", "founder_hours_per_week", "time_to_first_revenue", "exit_price", "other"]
 METRIC_UNITS = ["currency", "percent", "count", "hours", "days", "months", "years", "other"]
 METRIC_PERIODS = ["one_time", "day", "week", "month", "year", "cumulative", "unspecified"]
-EVIDENCE = ["shown", "stated_by_operator", "claimed_by_third_party", "none"]
 
 
 def _nullable(schema: dict) -> dict:
@@ -72,9 +72,8 @@ METRIC_SCHEMA = {
         "unit": _enum(METRIC_UNITS),
         "period": _enum(METRIC_PERIODS),
         "supporting_quote": _nullable(_STR),
-        "evidence_quality": _enum(EVIDENCE),
     },
-    "required": ["kind", "label", "value", "currency", "unit", "period", "supporting_quote", "evidence_quality"],
+    "required": ["kind", "label", "value", "currency", "unit", "period", "supporting_quote"],
     "additionalProperties": False,
 }
 
@@ -104,14 +103,14 @@ BUSINESS_SCHEMA = {
             "properties": {
                 "automation_level": _enum(LEVELS), "support_load": _enum(LEVELS),
                 "skills_required": _STR_LIST,
-                "physical_component": _nullable({"type": "boolean"}),
+                "physical_operations": _enum(PHYSICAL_OPERATIONS),
                 "regulated_industry": _nullable(_STR),
                 "revenue_source": _enum(REVENUE_SOURCES),
                 "us_specific_dependencies": _STR_LIST,
                 "language_dependent": _nullable({"type": "boolean"}),
                 "entry_barriers": _STR_LIST,
             },
-            "required": ["automation_level", "support_load", "skills_required", "physical_component",
+            "required": ["automation_level", "support_load", "skills_required", "physical_operations",
                          "regulated_industry", "revenue_source", "us_specific_dependencies",
                          "language_dependent", "entry_barriers"],
             "additionalProperties": False},
@@ -137,8 +136,8 @@ thread, blog article...) for a research pipeline that looks for business models 
 
 Rules:
 - Extract every business, product or company in the document that has an identifiable model (what it \
-sells, to whom, how it earns). Include it even when there are no figures. Skip things mentioned only as \
-an analogy or a name-drop with no description. Return at most {max_businesses}, the most detailed first. \
+sells, to whom, how it earns). Include it even when there are no figures. Skip things mentioned only in \
+passing (an analogy, a name-drop, a one-line example) and large companies cited only as context. Return at most {max_businesses}, the most detailed first. \
 If there is none, return an empty list.
 - Use only what the text says. Never fill gaps from your own knowledge and never guess. Unknown or \
 not stated: null (or "unknown" / an empty list where the field requires it).
@@ -151,10 +150,6 @@ conversion, team size, founder hours per week, time to first revenue, capital ne
 value is a plain number (10k = 10000; a percentage as 35 for 35%). currency is an ISO code when the text \
 makes it clear, otherwise null. Every metric with a value needs a supporting_quote that contains the \
 figure; if you cannot quote it, set value to null. Do not convert currencies.
-- evidence_quality for each metric: "stated_by_operator" = the person who runs the business says it; \
-"claimed_by_third_party" = a host, guest or commenter says it about someone else's business; \
-"shown" = the text says the figure is displayed (a dashboard, bank statement, Stripe screenshot) and \
-quotes it, which is rare in a transcript; "none" = no figure (value null).
 - platforms: the tools, marketplaces and services the business actually runs on (payments, hosting, \
 sales channels, no-code tools, AI APIs, ad networks...). single_platform_dependency is true only if the \
 text says the business depends on one platform it does not control.
@@ -163,7 +158,13 @@ is mainly from teaching others how to do it. us_specific_dependencies lists thin
 US (payment rails, insurance or health systems, tax or legal structure, US-only marketplaces or data). \
 entry_barriers lists capital, licences, skills or relationships the text says are needed.
 - prominence: "main_subject" if the document is mainly about this business, "secondary" if it gets a \
-real section, "mentioned_in_passing" otherwise.
+real section. Do not return businesses that are only mentioned in passing.
+- description: one sentence, at most 200 characters: what it sells, to whom, how it earns.
+- operation.physical_operations: "none" = software, content, digital products or services delivered \
+remotely; "outsourced" = there is a physical product or on-site work but third parties manufacture, \
+store, ship or perform it (dropshipping, print-on-demand, contractors); "own" = the operator \
+manufactures, stocks, installs, cooks, builds or runs a location or a field crew. Servers, computers, \
+cloud, GPUs and other IT infrastructure do NOT count as physical; "unknown" if the text does not say.
 - Do not rank, judge or comment. No opinions about any country or market.
 """
 
@@ -207,7 +208,8 @@ def build_params(doc: dict, cfg: dict) -> dict:
         "output_config": {"effort": cfg["effort"], "format": {"type": "json_schema", "schema": EXTRACTION_SCHEMA}},
     }
     if cfg.get("thinking") == "disabled":
-        params["thinking"] = {"type": "disabled"}
+        # Sonnet 5.5 rejects {"type": "disabled"}; "between_tools" is its way to not think before answering.
+        params["thinking"] = {"type": "disabled" if "haiku" in cfg["model"] else "between_tools"}
     elif cfg.get("thinking") == "adaptive":
         params["thinking"] = {"type": "adaptive"}
     return params
@@ -255,9 +257,7 @@ def verify_businesses(businesses: list[dict], full_text: str, cfg: dict) -> tupl
             else:
                 stats["nulled"] += 1
                 metric["unverified_value"] = metric["value"]
-                metric["model_evidence_quality"] = metric["evidence_quality"]
                 metric["value"] = None
-                metric["evidence_quality"] = "none"
         out.append(business)
     return out, stats
 
@@ -265,12 +265,12 @@ def verify_businesses(businesses: list[dict], full_text: str, cfg: dict) -> tupl
 # ------------------------------------------------------------------------------ cache
 
 
-def cache_path(doc: dict) -> Path:
-    return EXTRACTION_DIR / f"{documents.doc_key(doc)}.json"
+def cache_path(doc: dict, model: str) -> Path:
+    return EXTRACTION_DIR / model / f"{documents.doc_key(doc)}.json"
 
 
 def load_cached(doc: dict, cfg: dict) -> dict | None:
-    entry = llm.read_json(cache_path(doc))
+    entry = llm.read_json(cache_path(doc, cfg["model"]))
     if entry and entry.get("model") == cfg["model"] and entry.get("prompt_version") == cfg["prompt_version"]:
         return entry
     return None
@@ -300,7 +300,7 @@ def save(doc: dict, cfg: dict, raw: list[dict], usage, via_batch: bool) -> dict:
         "usage": {"input_tokens": usage.input_tokens, "output_tokens": usage.output_tokens},
         "via_batch": via_batch, "ts": llm.now_iso(),
     }
-    llm.write_json(cache_path(doc), entry)
+    llm.write_json(cache_path(doc, cfg["model"]), entry)
     return entry
 
 

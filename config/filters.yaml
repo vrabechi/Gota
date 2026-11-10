@@ -72,12 +72,13 @@ layer0:
 layer1:
   model: claude-haiku-5-5
   prompt_versions:                # bump a source's version to invalidate ITS triage cache on purpose
-    youtube: 2        # 2: speaker_role removed from the prompt and schema
-    hackernews: 2
-    blog: 1
-    qiita: 1
+    youtube: 3        # 3: five spaced excerpts instead of the first 1500 chars; 2: speaker_role removed
+    hackernews: 3
+    blog: 2
+    qiita: 2
   description_chars: 1000
-  transcript_chars: 1500
+  chunks: 5                       # texts longer than chunks*chunk_chars are sampled in `chunks` spaced passages
+  chunk_chars: 3000
   effort: low
   thinking: disabled              # classification only; keeps output tokens minimal
   max_tokens: 400

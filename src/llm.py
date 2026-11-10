@@ -151,8 +151,18 @@ def submit_or_resume_batch(client, name: str, requests: dict[str, dict]) -> str:
 
 
 def wait_for_batch(client, batch_id: str, poll_seconds: int = 30) -> None:
+    failures = 0
     while True:
-        batch = client.messages.batches.retrieve(batch_id)
+        try:
+            batch = client.messages.batches.retrieve(batch_id)
+            failures = 0
+        except Exception as exc:  # noqa: BLE001 - transient network errors must not kill a long wait
+            failures += 1
+            if failures > 20:
+                raise
+            print(f"  batch {batch_id}: status check failed ({type(exc).__name__}), retrying", file=sys.stderr)
+            time.sleep(poll_seconds)
+            continue
         counts = batch.request_counts
         print(f"  batch {batch_id}: {batch.processing_status} "
               f"(processing={counts.processing} succeeded={counts.succeeded} errored={counts.errored})",

@@ -36,8 +36,8 @@ described in detail with verifiable-sounding figures.
 SOURCE_PROMPT_FIELDS = {
     "youtube": {
         "items": "YouTube videos", "item": "video",
-        "seen": "title, channel, duration, view count, the start of the description, and the first "
-                "characters of the transcript",
+        "seen": "title, channel, duration, view count, the start of the description, and excerpts "
+                "of the transcript (the start, the end and passages in between; [...] marks omitted parts)",
     },
     "hackernews": {
         "items": "Hacker News posts", "item": "post",
@@ -47,12 +47,12 @@ SOURCE_PROMPT_FIELDS = {
     },
     "blog": {
         "items": "blog articles", "item": "article",
-        "seen": "title, site, publication date and the first characters of the article text",
+        "seen": "title, site, publication date and the article text (excerpts if long; [...] marks omitted parts)",
     },
     "qiita": {
         "items": "Qiita articles (a Japanese developer blogging platform)", "item": "article",
-        "seen": "title, author, publication date, likes, bookmarks (stocks) and the first characters of the "
-                "article text, which is in Japanese and may contain code",
+        "seen": "title, author, publication date, likes, bookmarks (stocks) and the article text (excerpts if long; "
+                "[...] marks omitted parts), which is in Japanese and may contain code",
     },
 }
 
@@ -83,9 +83,22 @@ def prompt_version(cfg: dict, source: str) -> int:
     return cfg["prompt_versions"][source]
 
 
+def sample_text(text: str, cfg: dict) -> str:
+    """Whole text when short; otherwise `chunks` passages of `chunk_chars`, evenly spaced from start to end."""
+    chunks, size = cfg["chunks"], cfg["chunk_chars"]
+    if len(text) <= chunks * size:
+        return text
+    span = len(text) - size
+    starts = [round(span * i / (chunks - 1)) for i in range(chunks)]
+    return "\n[...]\n".join(text[a:a + size] for a in starts)
+
+
 def build_user_text(doc: dict, cfg: dict) -> str:
     meta, engagement = doc.get("meta") or {}, doc.get("engagement") or {}
-    body = (doc.get("text") or "")[: cfg["transcript_chars"]]
+    body = sample_text(doc.get("text") or "", cfg)
+    body_is_sampled = body != (doc.get("text") or "")
+    label = "Transcript" if doc["source"] == "youtube" else "Text"
+    scope = f"excerpts, {cfg['chunks']} x {cfg['chunk_chars']} characters; [...] marks omitted parts"
     if doc["source"] == "youtube":
         description = (meta.get("description") or "").strip()[: cfg["description_chars"]] or "(not available)"
         minutes = round((meta.get("duration") or 0) / 60)
@@ -98,21 +111,21 @@ def build_user_text(doc: dict, cfg: dict) -> str:
                 f"Channel: {doc.get('author')}\n"
                 f"Duration: {minutes} min | Views: {engagement.get('views')}\n\n"
                 f"Description (start):\n{description}\n\n"
-                f"Transcript (first {cfg['transcript_chars']} characters):\n{body}")
+                f"{label} ({scope if body_is_sampled else 'full text'}):\n{body}")
     if doc["source"] == "blog":
         return (f"Title: {doc.get('title')}\n"
                 f"Site: {doc.get('author')} | Date: {doc.get('date')}\n\n"
-                f"Text (first {cfg['transcript_chars']} characters):\n{body or '(no text)'}")
+                f"{label} ({scope if body_is_sampled else 'full text'}):\n{body or '(no text)'}")
     if doc["source"] == "qiita":
         return ("Language: ja (the text below is Japanese; judge it as is and write the reason in English)\n"
                 f"Title: {doc.get('title')}\n"
                 f"Author: {doc.get('author')} | Date: {doc.get('date')} | Likes: {engagement.get('likes')} | "
                 f"Stocks: {engagement.get('stocks')}\n\n"
-                f"Text (first {cfg['transcript_chars']} characters):\n{body or '(no text)'}")
+                f"{label} ({scope if body_is_sampled else 'full text'}):\n{body or '(no text)'}")
     return (f"Title: {doc.get('title')}\n"
             f"Source: {doc['source']} | Author: {doc.get('author')} | Points: {engagement.get('score')} | "
             f"Comments: {engagement.get('comments')}\n\n"
-            f"Text (first {cfg['transcript_chars']} characters):\n{body or '(no text)'}")
+            f"{label} ({scope if body_is_sampled else 'full text'}):\n{body or '(no text)'}")
 
 
 def build_params(doc: dict, cfg: dict) -> dict:
@@ -202,8 +215,36 @@ def estimate_tokens(requests: dict[str, dict], cfg: dict) -> dict:
 # ----------------------------------------------------------------------------- run
 
 
+def collect_existing_batch(batch_id: str, sources: list[str] | None, channels: list[str] | None) -> int:
+    """Wait for an already submitted batch and save its results. No new requests, no new cost."""
+    cfg = load_cfg()
+    by_key = {documents.doc_key(d): d for d in documents.load_all(sources, channels)}
+    client = llm.get_client()
+    llm.wait_for_batch(client, batch_id)
+    saved = invalid = failed = skipped = 0
+    for key, message, error in llm.iter_batch_results(client, batch_id):
+        if key not in by_key:
+            skipped += 1
+            continue
+        if message is None:
+            print(f"  {key}: batch result {error}", file=sys.stderr)
+            failed += 1
+            continue
+        result = validate_result(llm.message_text(message))
+        if result is None:
+            invalid += 1
+            continue
+        save_result(by_key[key], cfg, result, message.usage, via_batch=True)
+        saved += 1
+    print(f"Batch {batch_id} collected: saved={saved} invalid_output={invalid} failed={failed} "
+          f"not_on_disk={skipped}")
+    return 0
+
+
 def run(channels: list[str] | None, limit: int | None, sync: bool, yes: bool,
-        sources: list[str] | None = None) -> int:
+        sources: list[str] | None = None, resume_batch: str | None = None) -> int:
+    if resume_batch:
+        return collect_existing_batch(resume_batch, sources, channels)
     cfg = load_cfg()
     docs = documents.load_all(sources, channels)
     pending = [d for d in docs if load_cached(d, cfg) is None]

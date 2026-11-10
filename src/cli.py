@@ -74,7 +74,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
 
 
 def cmd_triage(args: argparse.Namespace) -> int:
-    return triage.run(args.channel, args.limit, args.sync, args.yes, args.source)
+    return triage.run(args.channel, args.limit, args.sync, args.yes, args.source, args.resume_batch)
 
 
 def cmd_funnel(args: argparse.Namespace) -> int:
@@ -120,7 +120,7 @@ def cmd_funnel(args: argparse.Namespace) -> int:
     else:
         print(f"           actual usage: {tokens_in:,} input + {tokens_out:,} output tokens; cost: "
               + (f"US$ {cost:.4f}" if priced else "unavailable until pricing.yaml is verified"))
-    print(f"  Layer 2  {'approved for extraction':<20} {len(passed):>4}   (not implemented yet; estimate comes in step 3)")
+    print(f"  Layer 2  {'approved for extraction':<20} {len(passed):>4}   (run `extract` for the estimate)")
 
     if cached:
         histogram = Counter(e["result"]["relevance_score"] for e in cached)
@@ -161,6 +161,8 @@ def main() -> int:
     p1.add_argument("--limit", type=int)
     p1.add_argument("--sync", action="store_true", help="plain API calls instead of Batch (no discount, instant)")
     p1.add_argument("--yes", action="store_true", help="actually run the paid calls after seeing the estimate")
+    p1.add_argument("--resume-batch", metavar="BATCH_ID",
+                    help="collect the results of an already submitted batch (no new requests, no new cost)")
     p1.set_defaults(func=cmd_triage)
 
     px = sub.add_parser("extract", help="Layer 2: Sonnet extraction of businesses (paid; estimate first)")

@@ -4,18 +4,18 @@
 # numbers NEVER exclude a business; verified numbers count in its favour later (scoring.yaml). Nothing
 # about Brazil is extracted here: that judgement belongs to the final validation step.
 
-model: claude-sonnet-5-5
-prompt_version: 1             # bump to invalidate the extraction cache on purpose
+model: claude-haiku-5-5
+prompt_version: 2             # bump to invalidate the extraction cache on purpose
 effort: medium
 thinking: disabled            # "disabled" or "adaptive"
 max_tokens: 8000
-est_output_tokens: 1500       # per document, used only for cost estimates
+est_output_tokens: 2000      # per document, used only for cost estimates
 estimate_sample_size: 20      # requests measured exactly with count_tokens; the rest extrapolated
 
 input:
   max_chars: 150000           # longer texts are truncated (flagged in the result); ~40k tokens
   description_chars: 1500     # YouTube description (show notes often name the companies)
-  max_businesses: 8           # per document: the most detailed ones
+  max_businesses: 5           # per document: the most detailed ones
 
 # Quote verification (code, not the model): a metric keeps its value only if its supporting_quote
 # is found in the source text. Texts are normalised (case, punctuation, whitespace) first.
