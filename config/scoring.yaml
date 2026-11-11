@@ -14,7 +14,7 @@ exclude:
 weights:
   us_dependency: 25              # fewer US-specific dependencies = easier to bring to Brazil
   traction: 25                   # verified revenue/profit/customers, and scale a solo operator can reach
-  operable_solo: 20              # automation and low support load
+  operable_solo: 5               # lowered from 20 on 2026-11-10 (user decision): subjective and mostly unknown in the data
   stage: 10
   entry_barrier: 10              # low starting capital, few barriers
   ceiling: 10                    # category and recurring monetisation
