@@ -42,18 +42,26 @@ def scaled_value(m: dict) -> float | None:
     return value * SCALE_FACTOR[hit.group(1)] if hit else None
 
 
-def is_usd(m: dict) -> bool:
-    """USD when the model says so, or when it left the currency empty but the quote itself has a dollar marker."""
+OTHER_CURRENCY = r"€|£|¥|\beur\b|\beuros?\b|\bpounds?\b|\bgbp\b|\bcad\b|\baud\b|\byen\b|\breais\b|\bbrl\b|\bpesos?\b|\brupees?\b|\binr\b"
+
+
+def is_usd(m: dict, language: str | None = None) -> bool:
+    """USD when the model says so. With the currency left empty: a dollar marker in the quote is enough, and so is an
+    English-language document with no marker of another currency (the sources are mostly American; the model often
+    leaves the field empty for spoken figures such as 'we made over 81K')."""
     import re
+    quote = (m.get("supporting_quote") or "").lower()
     if m.get("currency"):
         return m["currency"] == "USD"
-    return bool(re.search(r"\$|\busd\b|\bdollars?\b|\bbucks\b", (m.get("supporting_quote") or "").lower()))
+    if re.search(r"\$|\busd\b|\bdollars?\b|\bbucks\b", quote):
+        return True
+    return bool(language and language.startswith("en") and not re.search(OTHER_CURRENCY, quote))
 
 
 def verified_usd(business: dict, kinds: set[str]) -> list[dict]:
     out = []
     for m in business.get("metrics", []):
-        if m["kind"] in kinds and m.get("value") is not None and m.get("quote_verified")                 and m.get("unit") == "currency" and is_usd(m):
+        if m["kind"] in kinds and m.get("value") is not None and m.get("quote_verified")                 and m.get("unit") == "currency" and is_usd(m, business.get("_language")):
             value = scaled_value(m)
             if value is not None:
                 out.append({**m, "value": value})
@@ -103,9 +111,34 @@ def credit_traction(b: dict, cfg: dict) -> float:
     return t["verified_in_band_credit"] if low <= rate <= high else t["verified_out_of_band_credit"]
 
 
+def known_means(model: str, data: dict, cfg: dict) -> dict:
+    """Average credit of the records where the field IS known. A field the model left as 'unknown' then gets this
+    average instead of a fixed guess, so missing information neither helps nor hurts relative to a typical business."""
+    o = cfg["operable_solo"]
+    sums = {"automation": [0.0, 0], "support_load": [0.0, 0], "stage": [0.0, 0]}
+    for cl in data["clusters"]:
+        for rid in cl["members"]:
+            b = load_business(model, rid)
+            if b is None:
+                continue
+            ops = b["operation"]
+            for key, level, table in (("automation", ops["automation_level"], o["automation"]),
+                                      ("support_load", ops["support_load"], o["support_load"]),
+                                      ("stage", b["stage"], cfg["stage_credit"])):
+                if level != "unknown" and level in table:
+                    sums[key][0] += table[level]
+                    sums[key][1] += 1
+    return {k: (s / n if n else 0.5) for k, (s, n) in sums.items()}
+
+
+def credit_level(table: dict, level: str, mean: float | None) -> float:
+    return mean if level == "unknown" and mean is not None else table[level]
+
+
 def credit_operable(b: dict, cfg: dict) -> float:
-    o, ops = cfg["operable_solo"], b["operation"]
-    return (o["automation"][ops["automation_level"]] + o["support_load"][ops["support_load"]]) / 2
+    o, ops, means = cfg["operable_solo"], b["operation"], cfg.get("_means") or {}
+    return (credit_level(o["automation"], ops["automation_level"], means.get("automation"))
+            + credit_level(o["support_load"], ops["support_load"], means.get("support_load"))) / 2
 
 
 def credit_barrier(b: dict, cfg: dict) -> float:
@@ -133,7 +166,7 @@ def score(b: dict, cfg: dict) -> dict:
         "us_dependency": w["us_dependency"] * credit_us(b, cfg),
         "traction": w["traction"] * credit_traction(b, cfg),
         "operable_solo": w["operable_solo"] * credit_operable(b, cfg),
-        "stage": w["stage"] * cfg["stage_credit"][b["stage"]],
+        "stage": w["stage"] * credit_level(cfg["stage_credit"], b["stage"], (cfg.get("_means") or {}).get("stage")),
         "entry_barrier": w["entry_barrier"] * credit_barrier(b, cfg),
         "ceiling": w["ceiling"] * credit_ceiling(b, cfg),
     }
@@ -150,10 +183,28 @@ def score(b: dict, cfg: dict) -> dict:
     return {"score": round(total, 1), "parts": {k: round(v, 1) for k, v in parts.items()}, "penalties": penalties}
 
 
+_LANGUAGES: dict[str, str] = {}
+
+
+def document_language(doc_key: str) -> str:
+    """Language of the source document ('en' when the source does not say)."""
+    if not _LANGUAGES:
+        import documents
+        for d in documents.load_all():
+            meta = d.get("meta") or {}
+            default = "ja" if d["source"] == "qiita" else "en"
+            _LANGUAGES[documents.doc_key(d)] = (meta.get("language") or meta.get("caption_language") or default).lower()
+    return _LANGUAGES.get(doc_key, "en")
+
+
 def load_business(model: str, rid: str) -> dict | None:
     doc_key, index = rid.rsplit("#", 1)
     entry = llm.read_json(EXTRACTION_DIR / model / f"{doc_key}.json")
-    return entry["businesses"][int(index)] if entry else None
+    if not entry:
+        return None
+    business = entry["businesses"][int(index)]
+    business["_language"] = document_language(doc_key)
+    return business
 
 
 def run() -> int:
@@ -163,6 +214,7 @@ def run() -> int:
         print("Run `dedupe` first.")
         return 1
     model, records = data["extraction_model"], data["records"]
+    cfg["_means"] = known_means(model, data, cfg) if cfg.get("unknown_as_mean", True) else {}
     ranked, failures, excluded = [], [], Counter()
     for cl in data["clusters"]:
         best, reasons = None, []

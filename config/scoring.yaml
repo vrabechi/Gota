@@ -80,3 +80,7 @@ ceiling:
 
 report:
   top_n: 50
+
+# Fields the model left as "unknown" (automation, support load, stage) get the AVERAGE credit of the records where they are
+# known, instead of a fixed guess. Set false to go back to the fixed credits above.
+unknown_as_mean: true
