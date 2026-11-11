@@ -177,7 +177,7 @@ def score(b: dict, cfg: dict) -> dict:
         penalties["single_platform_dependency"] = p["single_platform_dependency"]
     if ops["regulated_industry"]:
         penalties["regulated_industry"] = p["regulated_industry"]
-    if ops["language_dependent"]:
+    if ops["language_dependent"] and p["language_dependent"]:
         penalties["language_dependent"] = p["language_dependent"]
     total = sum(parts.values()) - sum(penalties.values())
     return {"score": round(total, 1), "parts": {k: round(v, 1) for k, v in parts.items()}, "penalties": penalties}

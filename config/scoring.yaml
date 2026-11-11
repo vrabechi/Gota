@@ -26,7 +26,7 @@ penalties:                       # points subtracted
   sells_courses_about_it: 10     # revenue comes from teaching others, not from the model itself
   single_platform_dependency: 5
   regulated_industry: 5
-  language_dependent: 3
+  language_dependent: 0          # removed on 2026-11-10 (user decision): localising to another language is the point, not a flaw
 
 us_dependency_credit:            # by number of us_specific_dependencies listed
   0: 0.8                         # none listed (the text may simply not say), so not full credit
