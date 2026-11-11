@@ -42,30 +42,54 @@ def scaled_value(m: dict) -> float | None:
     return value * SCALE_FACTOR[hit.group(1)] if hit else None
 
 
-OTHER_CURRENCY = r"€|£|¥|\beur\b|\beuros?\b|\bpounds?\b|\bgbp\b|\bcad\b|\baud\b|\byen\b|\breais\b|\bbrl\b|\bpesos?\b|\brupees?\b|\binr\b"
+CURRENCY_MARKERS = [  # quote text -> currency, checked in this order
+    (r"r\$|\breais\b|\bbrl\b", "BRL"),
+    (r"€|\beur\b|\beuros?\b", "EUR"),
+    (r"£|\bpounds?\b|\bgbp\b", "GBP"),
+    (r"¥|円|\byen\b|\bjpy\b", "JPY"),
+    (r"₹|\brupees?\b|\binr\b", "INR"),
+    (r"\bpesos?\b|\bmxn\b", "MXN"),
+    (r"\$|\busd\b|\bdollars?\b|\bbucks\b", "USD"),
+]
 
 
-def is_usd(m: dict, language: str | None = None) -> bool:
-    """USD when the model says so. With the currency left empty: a dollar marker in the quote is enough, and so is an
-    English-language document with no marker of another currency (the sources are mostly American; the model often
-    leaves the field empty for spoken figures such as 'we made over 81K')."""
+def effective_currency(m: dict, language: str | None, cfg: dict) -> str | None:
+    """The currency the figure is in. The model's ISO code wins. With it empty, a currency marker in the quote decides,
+    and with no marker the figure is assumed to be in the currency of the source language (an empty currency is never
+    a reason to lose points)."""
     import re
-    quote = (m.get("supporting_quote") or "").lower()
     if m.get("currency"):
-        return m["currency"] == "USD"
-    if re.search(r"\$|\busd\b|\bdollars?\b|\bbucks\b", quote):
-        return True
-    return bool(language and language.startswith("en") and not re.search(OTHER_CURRENCY, quote))
+        return m["currency"]
+    quote = (m.get("supporting_quote") or "").lower()
+    for pattern, currency in CURRENCY_MARKERS:
+        if re.search(pattern, quote):
+            return currency
+    return cfg["currency"]["default_by_language"].get((language or "en")[:2], "USD")
 
 
-def verified_usd(business: dict, kinds: set[str]) -> list[dict]:
+def verified_usd(business: dict, kinds: set[str], cfg: dict | None = None) -> list[dict]:
+    """Verified currency figures of these kinds, converted to USD with the approximate rates in scoring.yaml."""
+    cfg = cfg or _cfg()
+    fx = cfg["currency"]["fx_to_usd"]
     out = []
     for m in business.get("metrics", []):
-        if m["kind"] in kinds and m.get("value") is not None and m.get("quote_verified")                 and m.get("unit") == "currency" and is_usd(m, business.get("_language")):
-            value = scaled_value(m)
-            if value is not None:
-                out.append({**m, "value": value})
+        if m["kind"] not in kinds or m.get("value") is None or not m.get("quote_verified") or m.get("unit") != "currency":
+            continue
+        currency = effective_currency(m, business.get("_language"), cfg)
+        value = scaled_value(m)
+        if value is None or currency not in fx:
+            continue
+        out.append({**m, "value": value * fx[currency], "currency": "USD", "original_currency": currency})
     return out
+
+
+_CFG_CACHE: dict = {}
+
+
+def _cfg() -> dict:
+    if not _CFG_CACHE:
+        _CFG_CACHE.update(load_cfg())
+    return _CFG_CACHE
 
 
 def monthly_usd(business: dict, kinds: set[str]) -> float | None:
